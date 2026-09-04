@@ -1,0 +1,25 @@
+package com.backend.message_service.service;
+
+import com.backend.message_service.dto.request.CreateReactionRequest;
+import com.backend.message_service.dto.response.MessageResponse;
+import com.backend.message_service.dto.request.SendMessageRequest;
+import com.backend.message_service.dto.response.ReactionResponse;
+import org.springframework.data.domain.Page;
+
+import java.util.List;
+import java.util.UUID;
+
+import com.baomidou.mybatisplus.extension.service.IService;
+import com.backend.message_service.entity.Message;
+
+public interface MessageService extends IService<Message> {
+    MessageResponse sendMessage(UUID senderId, SendMessageRequest request);
+
+    MessageResponse recallMessage(Long messageId, UUID userId);
+//    Page<MessageResponse> getMessagesByConversation(Long conversationId, int pageNumber, int pageSize);
+    List<MessageResponse> getMessagesByConversation(UUID senderId, Long conversationId);
+//    ReactionResponse addReaction(CreateReactionRequest request);
+    ReactionResponse addReaction(UUID currentUserId, CreateReactionRequest request);
+
+    void removeReaction(Long reactionId, UUID userId);
+}

@@ -1,0 +1,72 @@
+server:
+  port: ${GATEWAY_PORT:8080}
+  forward-headers-strategy: framework
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dGhpc2lzYXNlY3JldGtleWZvcmF1dGhjb21wb25lbnRzZWNyZXRrZXkxMjM0NTY=}
+
+spring:
+  application:
+    name: gateway
+
+  cloud:
+    gateway:
+      forwarded-headers-strategy: framework
+      default-filters:
+        - PreserveHostHeader
+        - AddResponseHeader=X-Gateway, InternshipGateway
+      routes:
+        - id: auth-service
+          uri: http://${AUTH_HOST:localhost}:${AUTH_PORT:8081}
+          predicates:
+            - Path=/api/auth/**
+
+        - id: profile-service
+          uri: http://${PROFILE_HOST:localhost}:${PROFILE_PORT:8082}
+          predicates:
+            - Path=/api/profile/**
+          filters:
+            - PreserveHostHeader
+
+        - id: job-service
+          uri: http://${JOB_HOST:localhost}:${JOB_PORT:8083}
+          predicates:
+            - Path=/api/internship-post/**, /api/jobs/**, /api/job-posts/**, /api/skill/**, /api/skills/**, /api/skill-categories/**, /api/industries/**
+          filters:
+            - PreserveHostHeader
+
+        - id: message-service
+          uri: http://${MESSAGE_HOST:localhost}:${MESSAGE_PORT:8084}
+          predicates:
+            - Path=/api/message/**
+        #          filters:
+        #            - StripPrefix=1
+        #            - PreserveHostHeader
+
+        - id: cv-service
+          uri: http://${CV_HOST:localhost}:${CV_PORT:8085}
+          predicates:
+            - Path=/api/cv/**
+        #          filters:
+        #            - StripPrefix=1
+        #            - PreserveHostHeader
+
+        - id: applying-service
+          uri: http://${APPLYING_HOST:localhost}:${APPLYING_PORT:8090}
+          predicates:
+            - Path=/api/applying/**
+          filters:
+            - PreserveHostHeader
+
+        - id: matching-service
+          uri: http://${MATCHING_HOST:localhost}:${MATCHING_PORT:8088}
+          predicates:
+            - Path=/api/matching/**
+          filters:
+            - PreserveHostHeader
+management:
+  endpoints:
+    web:
+      exposure:
+        include: gateway,health,info

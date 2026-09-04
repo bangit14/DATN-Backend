@@ -1,0 +1,32 @@
+server:
+  port: ${AUTH_PORT:8081}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:auth_service_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:password}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-handlers-package: com.backend.authservice.config
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dGhpc2lzYXNlY3JldGtleWZvcmF1dGhjb21wb25lbnRzZWNyZXRrZXkxMjM0NTY=}
+    expiration-minutes: ${JWT_ACCESS_EXP_MINUTES:60}
+    refresh-expiration-days: ${JWT_REFRESH_EXP_DAYS:7}
+  services:
+    profile-url: ${PROFILE_SERVICE_URL:http://localhost:8082/api/profile}
+
+logging:
+  level:
+    org.springframework.web: DEBUG
+    org.apache.ibatis: DEBUG
+    com.backend.authservice.mapper: DEBUG

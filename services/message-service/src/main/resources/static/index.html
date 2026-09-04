@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real-time Chat</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 600px;
+            margin: auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        #messages {
+            display: flex;
+            flex-direction: column;  /* cũ -> mới từ trên xuống */
+            height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: white;
+            border-radius: 8px;
+        }
+        .message-wrapper {
+            display: flex;
+            flex-direction: column;
+            margin: 5px 0;
+        }
+        .message-container {
+            padding: 8px 12px;
+            border-radius: 18px;
+            background-color: #e4e6eb;
+            max-width: 70%;
+            word-wrap: break-word;
+            align-self: flex-start; /* tin nhắn nhận được bên trái */
+        }
+        .message-container.sent {
+            background-color: #0084ff;
+            color: white;
+            align-self: flex-end;   /* tin nhắn của mình bên phải */
+        }
+        .message-content img.image-message {
+            max-width: 100%;
+            border-radius: 15px;
+            display: block;
+            margin-top: 5px;
+        }
+        #messageForm {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #messageInput {
+            flex-grow: 1;
+            padding: 10px;
+            border-radius: 20px;
+            border: 1px solid #ccc;
+        }
+        #uploadButton, #submitButton {
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 24px;
+            color: #0084ff;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+</head>
+<body>
+<h1>Conversation #1</h1>
+
+<div id="messages"></div>
+
+<form id="messageForm" name="messageForm">
+    <input type="file" id="imageInput" accept="image/*" style="display: none;">
+    <button type="button" id="uploadButton">🖼️</button>
+
+    <input type="text" id="messageInput" placeholder="Type a message..." autocomplete="off"/>
+    <button type="submit" id="submitButton">➤</button>
+</form>
+
+<script>
+    // --- ⚙️ CẤU HÌNH ---
+    const CONVERSATION_ID = 1;
+    const CURRENT_USER_ID = '569e6f40-cd87-432a-bfd0-c257b00b0ddf';
+    const GATEWAY_URL = 'http://localhost:8084';
+
+    const messagesArea = document.getElementById('messages');
+    const messageInput = document.getElementById('messageInput');
+    const imageInput = document.getElementById('imageInput');
+
+    // --- 🎨 HIỂN THỊ TIN NHẮN ---
+    function displayMessage(message) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper';
+
+        const container = document.createElement('div');
+        container.className = 'message-container';
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+
+        const senderInfo = `<strong>${message.sender?.fullName || 'User'}:</strong><br>`;
+
+        switch (message.messageType) {
+            case 'IMAGE':
+                container.style.padding = '0';
+                container.style.backgroundColor = 'transparent';
+                contentDiv.innerHTML = `<img src="${message.content}" class="image-message" alt="Image message" />`;
+                break;
+
+            case 'RECALLED':
+                contentDiv.innerHTML = '<i>Tin nhắn đã được thu hồi</i>';
+                container.style.backgroundColor = 'transparent';
+                container.style.color = '#888';
+                break;
+
+            case 'TEXT':
+            default:
+                if (message.sender?.id === CURRENT_USER_ID) {
+                    contentDiv.textContent = message.content;
+                } else {
+                    contentDiv.innerHTML = senderInfo + message.content;
+                }
+                break;
+        }
+
+        if (message.sender?.id === CURRENT_USER_ID) {
+            container.classList.add('sent');
+        }
+
+        container.appendChild(contentDiv);
+        wrapper.appendChild(container);
+
+        // thêm xuống cuối
+        messagesArea.appendChild(wrapper);
+
+        // auto scroll xuống cuối
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+    }
+
+    // --- 📞 API: GỬI TIN NHẮN TEXT ---
+    function sendTextMessage(content) {
+        const request = {
+            conversationId: CONVERSATION_ID,
+            senderId: CURRENT_USER_ID,
+            content: content,
+            messageType: 'TEXT'
+        };
+
+        fetch(`${GATEWAY_URL}/api/message/v1/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request)
+        }).then(response => {
+            if (response.ok) {
+                messageInput.value = '';
+            } else {
+                alert('Gửi tin nhắn thất bại!');
+            }
+        });
+    }
+
+    // --- 📞 API: GỬI ẢNH ---
+    async function sendImageMessage(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('conversationId', CONVERSATION_ID);
+        formData.append('senderId', CURRENT_USER_ID);
+
+        try {
+            const response = await fetch(`${GATEWAY_URL}/api/message/v1/messages/image`, {
+                method: 'POST',
+                body: formData
+            });
+            if (!response.ok) {
+                alert('Gửi ảnh thất bại!');
+            }
+        } catch (error) {
+            console.error('Lỗi khi tải ảnh lên:', error);
+            alert('Đã xảy ra lỗi khi gửi ảnh.');
+        }
+    }
+
+    // --- 📥 TẢI LỊCH SỬ ---
+    function loadHistory() {
+        fetch(`${GATEWAY_URL}/api/message/v1/messages/conversation/${CONVERSATION_ID}?page=0&size=50`)
+            .then(res => res.json())
+            .then(page => {
+                messagesArea.innerHTML = '';
+
+                if (!Array.isArray(page)) {
+                    console.error("Định dạng lịch sử không như mong đợi:", page);
+                    return;
+                }
+
+                // nếu API trả mới->cũ thì đảo lại
+                const ordered = page.slice().reverse();
+
+                ordered.forEach(message => {
+                    const formattedMessage = {
+                        ...message,
+                        senderId: message.sender?.id,
+                        senderFullName: message.sender?.fullName
+                    };
+                    displayMessage(formattedMessage);
+                });
+
+                messagesArea.scrollTop = messagesArea.scrollHeight;
+            })
+            .catch(err => console.error("Lỗi tải lịch sử chat:", err));
+    }
+
+    // --- ⚡ WEBSOCKET / STOMP ---
+    const socket = new SockJS(`${GATEWAY_URL}/ws`);
+    const stompClient = Stomp.over(socket);
+
+    // (tuỳ thích) bật debug STOMP
+    // stompClient.debug = str => console.log("STOMP:", str);
+
+    const onConnected = () => {
+        console.log("✅ Đã kết nối WebSocket thành công!");
+        stompClient.subscribe(`/topic/conversation/${CONVERSATION_ID}`, onEventReceived);
+        loadHistory();
+    };
+
+    const onEventReceived = (payload) => {
+        console.log("📥 Nhận được sự kiện mới (raw):", payload.body);
+
+        let event;
+        try {
+            event = JSON.parse(payload.body);
+        } catch (e) {
+            console.error("❌ Không parse được JSON:", e);
+            return;
+        }
+
+        // server gửi: { eventType: "NEW_MESSAGE", payload: { ... } }
+        const type = event.eventType || event.type;
+
+        if (type === "NEW_MESSAGE") {
+            const msg = event.payload;
+            const newMessage = {
+                ...msg,
+                senderId: msg.sender?.id,
+                senderFullName: msg.sender?.fullName
+            };
+            displayMessage(newMessage);
+            return;
+        }
+
+        if (type === "MESSAGE_RECALLED") {
+            console.log("Tin nhắn đã được thu hồi:", event.payload);
+            loadHistory();
+            return;
+        }
+
+        console.warn("⚠ Event type không xử lý:", event);
+    };
+
+    const onConnectionError = (error) => {
+        console.error('❌ Lỗi kết nối WebSocket:', error);
+        alert("Không thể kết nối tới server chat. Vui lòng thử lại sau.");
+    };
+
+    stompClient.connect({}, onConnected, onConnectionError);
+
+    // --- 👂 SỰ KIỆN UI ---
+    document.getElementById('messageForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const content = messageInput.value.trim();
+        if (content) {
+            sendTextMessage(content);
+        }
+    });
+
+    document.getElementById('uploadButton').addEventListener('click', () => {
+        imageInput.click();
+    });
+
+    imageInput.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            sendImageMessage(file);
+        }
+        event.target.value = '';
+    });
+</script>
+</body>
+</html>

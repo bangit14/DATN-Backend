@@ -1,0 +1,399 @@
+package com.backend.authservice.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.backend.authservice.dto.request.ChangePasswordRequest;
+import com.backend.authservice.dto.request.GoogleAuthRequest;
+import com.backend.authservice.dto.request.LoginRequest;
+import com.backend.authservice.dto.request.LogoutRequest;
+import com.backend.authservice.dto.request.RegisterRequest;
+import com.backend.authservice.dto.response.AccountResponse;
+import com.backend.authservice.dto.response.AuthResponse;
+import com.backend.authservice.entity.RefreshToken;
+import com.backend.authservice.entity.UserAccount;
+import com.backend.authservice.enums.AccountStatus;
+import com.backend.authservice.enums.AccountType;
+import com.backend.authservice.enums.ErrorCode;
+import com.backend.authservice.enums.Role;
+import com.backend.authservice.exception.AppException;
+import com.backend.authservice.mapper.db.RefreshTokenMapper;
+import com.backend.authservice.mapper.db.UserAccountMapper;
+import com.backend.authservice.service.AuthService;
+import com.backend.authservice.service.TokenService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount> implements AuthService {
+    private final UserAccountMapper userAccountMapper;
+    private final RefreshTokenMapper refreshTokenMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final TokenService tokenService;
+    private final RestTemplate restTemplate;
+
+    @Value("${app.google.client-id:}")
+    private String googleClientId;
+
+    @Value("${app.services.profile-url:http://localhost:8082/api/profile}")
+    private String profileServiceUrl;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AuthResponse register(RegisterRequest request) {
+        Objects.requireNonNull(request, "Register request must not be null");
+        String email = request.getEmail().trim().toLowerCase();
+
+        boolean exists = userAccountMapper.exists(
+                new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getEmail, email)
+        );
+        if (exists) {
+            throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
+        }
+
+        UserAccount user = new UserAccount();
+        BeanUtils.copyProperties(request, user);
+        user.setId(UUID.randomUUID());
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setAccountType(AccountType.DEFAULT);
+        user.setStatus(AccountStatus.ACTIVE);
+        user.setCreatedAt(Instant.now());
+        user.setUpdatedAt(Instant.now());
+        userAccountMapper.insert(user);
+
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("userId", user.getId());
+            body.put("fullName", request.getFullName());
+            body.put("email", user.getEmail());
+            body.put("phone", request.getPhone());
+
+            String url = (user.getRole() == Role.CANDIDATE)
+                    ? profileServiceUrl + "/candidates/auto-create"
+                    : (user.getRole() == Role.EMPLOYER)
+                    ? profileServiceUrl + "/employers/auto-create"
+                    : null;
+
+            if (url != null) {
+                restTemplate.postForEntity(url, body, Void.class);
+                log.info("Auto-created profile for userId={} with role={}", user.getId(), user.getRole());
+            } else {
+                log.warn("Role {} does not have profile auto-create configured.", user.getRole());
+            }
+        } catch (Exception e) {
+            log.error("Failed to auto-create profile for userId={} (role={}). Executing compensation action (deleting user)...", user.getId(), user.getRole(), e);
+            try {
+                userAccountMapper.deleteById(user.getId());
+                log.info("Compensated successfully: Deleted user account userId={}", user.getId());
+            } catch (Exception deleteEx) {
+                log.error("Compensating user deletion failed for userId={}: {}", user.getId(), deleteEx.getMessage());
+            }
+            throw new AppException(ErrorCode.PROFILE_CREATION_FAILED, "Đăng ký thất bại: Không thể khởi tạo hồ sơ người dùng. Giao dịch đã được hủy bỏ.");
+        }
+
+        AuthResponse response = tokenService.issueTokens(user);
+        response.setFullName(request.getFullName());
+
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AuthResponse login(LoginRequest request) {
+        Objects.requireNonNull(request, "Login request must not be null");
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+            );
+
+            UserAccount user = userAccountMapper.selectOne(
+                    new LambdaQueryWrapper<UserAccount>()
+                            .eq(UserAccount::getEmail, request.getEmail().trim().toLowerCase())
+            );
+
+            if (user == null) {
+                throw new AppException(ErrorCode.USER_NOT_FOUND);
+            }
+
+            if (user.getStatus() != AccountStatus.ACTIVE) {
+                throw new AppException(ErrorCode.ACCOUNT_INACTIVE);
+            }
+
+            AuthResponse response = tokenService.issueTokens(user);
+            String role = user.getRole().name();
+            String fullName = getFullNameFromProfile(user.getId(), role);
+            response.setFullName(fullName);
+
+            return response;
+
+        } catch (BadCredentialsException ex) {
+            throw new AppException(ErrorCode.INVALID_CREDENTIALS);
+
+        } catch (DisabledException | LockedException ex) {
+            throw new AppException(ErrorCode.ACCOUNT_INACTIVE);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AuthResponse googleAuth(GoogleAuthRequest request) {
+        Objects.requireNonNull(request, "GoogleAuth request must not be null");
+        if (request.getIdToken() == null || request.getIdToken().trim().isEmpty()) {
+            throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Google ID Token is required");
+        }
+
+        Map<String, Object> tokenPayload;
+        try {
+            String verifyUrl = "https://oauth2.googleapis.com/tokeninfo?id_token=" + request.getIdToken().trim();
+            ResponseEntity<Map> response = restTemplate.getForEntity(verifyUrl, Map.class);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN);
+            }
+            tokenPayload = response.getBody();
+        } catch (Exception e) {
+            log.error("Failed to verify Google ID token with Google API: {}", e.getMessage());
+            throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Xác thực tài khoản Google không thành công");
+        }
+
+        String email = (String) tokenPayload.get("email");
+        if (email == null || email.trim().isEmpty()) {
+            throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Không tìm thấy email từ tài khoản Google");
+        }
+
+        email = email.trim().toLowerCase();
+
+        // Optional Audience validation
+        if (googleClientId != null && !googleClientId.trim().isEmpty()) {
+            String aud = (String) tokenPayload.get("aud");
+            if (!googleClientId.equals(aud)) {
+                log.warn("Google ID token audience mismatch. Expected: {}, Got: {}", googleClientId, aud);
+            }
+        }
+
+        String name = (String) tokenPayload.get("name");
+        if (name == null || name.trim().isEmpty()) {
+            name = email.split("@")[0];
+        }
+        String picture = (String) tokenPayload.get("picture");
+
+        // 2. Check if user already exists
+        UserAccount user = userAccountMapper.selectOne(
+                new LambdaQueryWrapper<UserAccount>()
+                        .eq(UserAccount::getEmail, email)
+        );
+
+        boolean isNewUser = (user == null);
+
+        if (!isNewUser) {
+            // Existing user login
+            if (user.getStatus() != AccountStatus.ACTIVE) {
+                throw new AppException(ErrorCode.ACCOUNT_INACTIVE);
+            }
+            log.info("Google login successful for existing user: {}", email);
+        } else {
+            // New user registration
+            Role targetRole = (request.getRole() != null) ? request.getRole() : Role.CANDIDATE;
+
+            user = new UserAccount();
+            user.setId(UUID.randomUUID());
+            user.setEmail(email);
+            user.setPasswordHash(null);
+            user.setRole(targetRole);
+            user.setAccountType(AccountType.GOOGLE);
+            user.setStatus(AccountStatus.ACTIVE);
+            user.setCreatedAt(Instant.now());
+            user.setUpdatedAt(Instant.now());
+
+            userAccountMapper.insert(user);
+            log.info("Auto-registered new user from Google: {} with role: {} and accountType: GOOGLE", email, targetRole);
+
+            try {
+                Map<String, Object> body = new HashMap<>();
+                body.put("userId", user.getId());
+                body.put("fullName", name);
+                body.put("email", email);
+                if (picture != null) {
+                    body.put("avatarUrl", picture);
+                }
+
+                String url = (user.getRole() == Role.CANDIDATE)
+                        ? profileServiceUrl + "/candidates/auto-create"
+                        : (user.getRole() == Role.EMPLOYER)
+                        ? profileServiceUrl + "/employers/auto-create"
+                        : null;
+
+                if (url != null) {
+                    restTemplate.postForEntity(url, body, Void.class);
+                    log.info("Auto-created profile for Google userId={} (role={})", user.getId(), user.getRole());
+                }
+            } catch (Exception e) {
+                log.error("Failed to auto-create profile for Google userId={} (role={}). Executing compensation action (deleting user)...", user.getId(), user.getRole(), e);
+                try {
+                    userAccountMapper.deleteById(user.getId());
+                    log.info("Compensated successfully: Deleted Google user account userId={}", user.getId());
+                } catch (Exception deleteEx) {
+                    log.error("Compensating Google user deletion failed for userId={}: {}", user.getId(), deleteEx.getMessage());
+                }
+                throw new AppException(ErrorCode.PROFILE_CREATION_FAILED, "Đăng ký thất bại !");
+            }
+        }
+
+        // 3. Issue tokens
+        AuthResponse authResponse = tokenService.issueTokens(user);
+        String roleStr = user.getRole().name();
+        String resolvedFullName = !isNewUser ? getFullNameFromProfile(user.getId(), roleStr) : name;
+        authResponse.setFullName(resolvedFullName != null && !resolvedFullName.equals("User") ? resolvedFullName : name);
+
+        return authResponse;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void logout(LogoutRequest request) {
+        Objects.requireNonNull(request, "Logout request must not be null");
+        RefreshToken token = refreshTokenMapper.selectOne(
+                new LambdaQueryWrapper<RefreshToken>()
+                        .eq(RefreshToken::getToken, request.getRefreshToken())
+        );
+        if (token != null) {
+            token.setRevoked(true);
+            refreshTokenMapper.updateById(token);
+        }
+    }
+
+    private String getFullNameFromProfile(UUID userId, String role) {
+        try {
+            String path = switch (role) {
+                case "CANDIDATE", "STUDENT"  -> "/api/profile/internal/candidates/";
+                case "EMPLOYER"              -> "/api/profile/internal/employers/";
+                default                      -> null;
+            };
+
+            if (path == null) return "User";
+
+            String url = profileServiceUrl.replace("/api/profile", "") + path + userId;
+            ResponseEntity<Map> resp = restTemplate.getForEntity(url, Map.class);
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                Map<String, Object> data = (Map<String, Object>) resp.getBody().get("data");
+                if (data == null) {
+                    data = resp.getBody();
+                }
+                String name = (String) data.get("fullName");
+                if (name == null || name.isBlank()) {
+                    name = (String) data.get("name");
+                }
+                return name != null && !name.isBlank() ? name : "User";
+            }
+        } catch (Exception e) {
+            log.warn("Could not fetch profile for user {}: {}", userId, e.getMessage());
+        }
+        return "User";
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void changePassword(ChangePasswordRequest request) {
+        Objects.requireNonNull(request, "ChangePassword request must not be null");
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+
+        String currentPrincipal = authentication.getName();
+
+        UserAccount user = userAccountMapper.selectOne(
+                new LambdaQueryWrapper<UserAccount>()
+                        .eq(UserAccount::getEmail, currentPrincipal.trim().toLowerCase())
+        );
+
+        if (user == null) {
+            try {
+                user = userAccountMapper.selectById(UUID.fromString(currentPrincipal));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        if (user == null) {
+            throw new AppException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        if (user.getPasswordHash() != null && !user.getPasswordHash().isBlank()) {
+            if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
+                throw new AppException(ErrorCode.INVALID_CREDENTIALS, "Mật khẩu cũ không chính xác");
+            }
+        }
+
+        if (request.getConfirmPassword() != null && !request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new AppException(ErrorCode.INVALID_CREDENTIALS, "Mật khẩu xác nhận không khớp");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setUpdatedAt(Instant.now());
+        userAccountMapper.updateById(user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AccountResponse getAccount() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+
+        String principal = authentication.getName();
+        UserAccount user = null;
+        try {
+            user = userAccountMapper.selectById(UUID.fromString(principal));
+        } catch (Exception e) {
+            user = userAccountMapper.selectOne(
+                    new LambdaQueryWrapper<UserAccount>()
+                            .eq(UserAccount::getEmail, principal.trim().toLowerCase())
+            );
+        }
+
+        if (user == null) {
+            throw new AppException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        java.util.Set<String> authorities = authentication.getAuthorities().stream()
+                .map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                .collect(java.util.stream.Collectors.toSet());
+
+        String roleStr = user.getRole().name();
+        String fullName = getFullNameFromProfile(user.getId(), roleStr);
+
+        AccountResponse response = new AccountResponse();
+        BeanUtils.copyProperties(user, response);
+        response.setLogin(user.getEmail());
+        response.setEmail(user.getEmail());
+        response.setFullName(fullName);
+        response.setActivated(user.isActivated());
+        response.setLangKey(user.getLangKey() != null ? user.getLangKey() : "vi");
+        response.setAuthorities(authorities);
+
+        return response;
+    }
+}
