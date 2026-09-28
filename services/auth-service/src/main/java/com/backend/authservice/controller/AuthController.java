@@ -9,10 +9,7 @@ import com.backend.authservice.service.TokenService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("api/auth")
@@ -95,7 +92,7 @@ public class AuthController {
                 ));
     }
 
-    @org.springframework.web.bind.annotation.GetMapping({"/me", "/account"})
+    @GetMapping({"/me", "/account"})
     public ResponseEntity<ApiResponse<com.backend.authservice.dto.response.AccountResponse>> getAccount() {
         com.backend.authservice.dto.response.AccountResponse result = authService.getAccount();
         return ResponseEntity.ok(ApiResponse.success("SUCCESS", "Get account information successfully", result));

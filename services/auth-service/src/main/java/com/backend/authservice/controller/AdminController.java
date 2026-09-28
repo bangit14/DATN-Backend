@@ -2,6 +2,7 @@ package com.backend.authservice.controller;
 
 import com.backend.authservice.dto.admin.UpdateUserRoleRequest;
 import com.backend.authservice.dto.admin.UpdateUserStatusRequest;
+import com.backend.authservice.dto.admin.CreateEmployerRequest;
 import com.backend.authservice.dto.response.ApiResponse;
 import com.backend.authservice.enums.AccountStatus;
 import com.backend.authservice.enums.Role;
@@ -61,6 +62,17 @@ public class AdminController {
     ) {
         return ResponseEntity.ok(ApiResponse.success("ADMIN_204", "Update user role success",
                 adminService.updateUserRole(userId, req)));
+    }
+
+    @PostMapping("/users/employers")
+    public ResponseEntity<ApiResponse<?>> createEmployer(
+            @jakarta.validation.Valid @RequestBody CreateEmployerRequest req
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "ADMIN_206",
+                "Create employer account success",
+                adminService.createEmployer(req)
+        ));
     }
 
     // ========== D) DASHBOARD STATS ==========

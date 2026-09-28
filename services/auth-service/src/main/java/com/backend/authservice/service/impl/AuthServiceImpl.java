@@ -64,6 +64,9 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
     @Transactional(rollbackFor = Exception.class)
     public AuthResponse register(RegisterRequest request) {
         Objects.requireNonNull(request, "Register request must not be null");
+        if (request.getRole() != Role.CANDIDATE) {
+            throw new AppException(ErrorCode.EMPLOYER_REGISTRATION_DISABLED);
+        }
         String email = request.getEmail().trim().toLowerCase();
 
         boolean exists = userAccountMapper.exists(
@@ -91,11 +94,7 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
             body.put("email", user.getEmail());
             body.put("phone", request.getPhone());
 
-            String url = (user.getRole() == Role.CANDIDATE)
-                    ? profileServiceUrl + "/candidates/auto-create"
-                    : (user.getRole() == Role.EMPLOYER)
-                    ? profileServiceUrl + "/employers/auto-create"
-                    : null;
+            String url = profileServiceUrl + "/candidates/auto-create";
 
             if (url != null) {
                 restTemplate.postForEntity(url, body, Void.class);
@@ -161,114 +160,139 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
     @Transactional(rollbackFor = Exception.class)
     public AuthResponse googleAuth(GoogleAuthRequest request) {
         Objects.requireNonNull(request, "GoogleAuth request must not be null");
-        if (request.getIdToken() == null || request.getIdToken().trim().isEmpty()) {
+        if (request.getRole() != null && request.getRole() != Role.CANDIDATE) {
+            throw new AppException(ErrorCode.EMPLOYER_REGISTRATION_DISABLED);
+        }
+        log.info("Processing Google authentication request with role: {}", request.getRole());
+
+        // 1. Verify token with Google API and extract user info
+        GoogleUserInfo googleUser = verifyGoogleIdToken(request.getIdToken());
+
+        // 2. Lookup existing user or register a new one
+        UserAccount existingUser = userAccountMapper.selectOne(
+                new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getEmail, googleUser.email())
+        );
+        boolean isNewUser = (existingUser == null);
+
+        UserAccount user = isNewUser
+                ? registerNewGoogleUser(googleUser, request.getRole())
+                : validateExistingGoogleUser(existingUser);
+
+        // 3. Auto-sync profile with profile-service for new user
+        if (isNewUser) {
+            syncProfileForGoogleUser(user, googleUser);
+        }
+
+        // 4. Issue tokens
+        AuthResponse authResponse = tokenService.issueTokens(user);
+
+        // 5. Resolve user's full name
+        String resolvedFullName = isNewUser
+                ? googleUser.name()
+                : getFullNameFromProfile(user.getId(), user.getRole().name());
+        authResponse.setFullName(resolvedFullName != null && !resolvedFullName.equals("User") ? resolvedFullName : googleUser.name());
+
+        return authResponse;
+    }
+
+    /**
+     * Verifies Google ID Token via Google's tokeninfo endpoint.
+     */
+    private GoogleUserInfo verifyGoogleIdToken(String idToken) {
+        if (idToken == null || idToken.trim().isEmpty()) {
             throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Google ID Token is required");
         }
 
-        Map<String, Object> tokenPayload;
+        Map<String, Object> payload;
         try {
-            String verifyUrl = "https://oauth2.googleapis.com/tokeninfo?id_token=" + request.getIdToken().trim();
+            String verifyUrl = "https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken.trim();
             ResponseEntity<Map> response = restTemplate.getForEntity(verifyUrl, Map.class);
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                 throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN);
             }
-            tokenPayload = response.getBody();
+            payload = response.getBody();
+        } catch (AppException ae) {
+            throw ae;
         } catch (Exception e) {
             log.error("Failed to verify Google ID token with Google API: {}", e.getMessage());
-            throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Xác thực tài khoản Google không thành công");
+            throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Xác thực tài khoản Google không thành công: " + e.getMessage());
         }
 
-        String email = (String) tokenPayload.get("email");
+        String email = (String) payload.get("email");
         if (email == null || email.trim().isEmpty()) {
             throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Không tìm thấy email từ tài khoản Google");
         }
-
         email = email.trim().toLowerCase();
 
-        // Optional Audience validation
+        // Optional Audience check
         if (googleClientId != null && !googleClientId.trim().isEmpty()) {
-            String aud = (String) tokenPayload.get("aud");
+            String aud = (String) payload.get("aud");
             if (!googleClientId.equals(aud)) {
                 log.warn("Google ID token audience mismatch. Expected: {}, Got: {}", googleClientId, aud);
             }
         }
 
-        String name = (String) tokenPayload.get("name");
+        String name = (String) payload.get("name");
         if (name == null || name.trim().isEmpty()) {
             name = email.split("@")[0];
         }
-        String picture = (String) tokenPayload.get("picture");
+        String picture = (String) payload.get("picture");
 
-        // 2. Check if user already exists
-        UserAccount user = userAccountMapper.selectOne(
-                new LambdaQueryWrapper<UserAccount>()
-                        .eq(UserAccount::getEmail, email)
-        );
-
-        boolean isNewUser = (user == null);
-
-        if (!isNewUser) {
-            // Existing user login
-            if (user.getStatus() != AccountStatus.ACTIVE) {
-                throw new AppException(ErrorCode.ACCOUNT_INACTIVE);
-            }
-            log.info("Google login successful for existing user: {}", email);
-        } else {
-            // New user registration
-            Role targetRole = (request.getRole() != null) ? request.getRole() : Role.CANDIDATE;
-
-            user = new UserAccount();
-            user.setId(UUID.randomUUID());
-            user.setEmail(email);
-            user.setPasswordHash(null);
-            user.setRole(targetRole);
-            user.setAccountType(AccountType.GOOGLE);
-            user.setStatus(AccountStatus.ACTIVE);
-            user.setCreatedAt(Instant.now());
-            user.setUpdatedAt(Instant.now());
-
-            userAccountMapper.insert(user);
-            log.info("Auto-registered new user from Google: {} with role: {} and accountType: GOOGLE", email, targetRole);
-
-            try {
-                Map<String, Object> body = new HashMap<>();
-                body.put("userId", user.getId());
-                body.put("fullName", name);
-                body.put("email", email);
-                if (picture != null) {
-                    body.put("avatarUrl", picture);
-                }
-
-                String url = (user.getRole() == Role.CANDIDATE)
-                        ? profileServiceUrl + "/candidates/auto-create"
-                        : (user.getRole() == Role.EMPLOYER)
-                        ? profileServiceUrl + "/employers/auto-create"
-                        : null;
-
-                if (url != null) {
-                    restTemplate.postForEntity(url, body, Void.class);
-                    log.info("Auto-created profile for Google userId={} (role={})", user.getId(), user.getRole());
-                }
-            } catch (Exception e) {
-                log.error("Failed to auto-create profile for Google userId={} (role={}). Executing compensation action (deleting user)...", user.getId(), user.getRole(), e);
-                try {
-                    userAccountMapper.deleteById(user.getId());
-                    log.info("Compensated successfully: Deleted Google user account userId={}", user.getId());
-                } catch (Exception deleteEx) {
-                    log.error("Compensating Google user deletion failed for userId={}: {}", user.getId(), deleteEx.getMessage());
-                }
-                throw new AppException(ErrorCode.PROFILE_CREATION_FAILED, "Đăng ký thất bại !");
-            }
-        }
-
-        // 3. Issue tokens
-        AuthResponse authResponse = tokenService.issueTokens(user);
-        String roleStr = user.getRole().name();
-        String resolvedFullName = !isNewUser ? getFullNameFromProfile(user.getId(), roleStr) : name;
-        authResponse.setFullName(resolvedFullName != null && !resolvedFullName.equals("User") ? resolvedFullName : name);
-
-        return authResponse;
+        return new GoogleUserInfo(email, name, picture);
     }
+
+    private UserAccount validateExistingGoogleUser(UserAccount user) {
+        if (user.getStatus() != AccountStatus.ACTIVE) {
+            throw new AppException(ErrorCode.ACCOUNT_INACTIVE);
+        }
+        log.info("Google login successful for existing user: {}", user.getEmail());
+        return user;
+    }
+
+    private UserAccount registerNewGoogleUser(GoogleUserInfo googleUser, Role requestedRole) {
+        Role targetRole = (requestedRole != null) ? requestedRole : Role.CANDIDATE;
+
+        UserAccount user = new UserAccount();
+        user.setId(UUID.randomUUID());
+        user.setEmail(googleUser.email());
+        user.setPasswordHash(null);
+        user.setRole(targetRole);
+        user.setAccountType(AccountType.GOOGLE);
+        user.setStatus(AccountStatus.ACTIVE);
+        user.setCreatedAt(Instant.now());
+        user.setUpdatedAt(Instant.now());
+
+        userAccountMapper.insert(user);
+        log.info("Auto-registered new user from Google: {} with role: {} and accountType: GOOGLE", googleUser.email(), targetRole);
+        return user;
+    }
+
+    private void syncProfileForGoogleUser(UserAccount user, GoogleUserInfo googleUser) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("userId", user.getId());
+            body.put("fullName", googleUser.name());
+            body.put("email", user.getEmail());
+            if (googleUser.picture() != null) {
+                body.put("avatarUrl", googleUser.picture());
+            }
+
+            String url = (user.getRole() == Role.CANDIDATE)
+                    ? profileServiceUrl + "/candidates/auto-create"
+                    : (user.getRole() == Role.EMPLOYER)
+                    ? profileServiceUrl + "/employers/auto-create"
+                    : null;
+
+            if (url != null) {
+                restTemplate.postForEntity(url, body, Void.class);
+                log.info("Auto-created profile for Google userId={} (role={})", user.getId(), user.getRole());
+            }
+        } catch (Exception e) {
+            log.warn("Auto-create profile via profile-service failed or service offline: {}. Proceeding with user login.", e.getMessage());
+        }
+    }
+
+    private record GoogleUserInfo(String email, String name, String picture) {}
 
     @Override
     @Transactional(rollbackFor = Exception.class)

@@ -1,8 +1,12 @@
 package com.backend.cv_service.controller;
 
+import com.backend.cv_service.core.enums.SortDirectionEnum;
 import com.backend.cv_service.dto.CvDetailDto;
+import com.backend.cv_service.dto.CvPageRequest;
 import com.backend.cv_service.dto.CvSummaryDto;
+import com.backend.cv_service.dto.EmployerCvResponse;
 import com.backend.cv_service.dto.UpdateCvNameRequest;
+import com.backend.cv_service.dto.response.ListDataRes;
 import com.backend.cv_service.service.CvPdfExportService;
 import com.backend.cv_service.service.CvService;
 import com.backend.cv_service.util.CvPdfTemplateBuilder;
@@ -117,5 +121,46 @@ public class CvController {
         headers.setContentType(MediaType.APPLICATION_PDF);
         headers.setContentDispositionFormData("attachment", "cv_sample.pdf");
         return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
+    }
+
+    @PostMapping({"/employer/filter", "/employer/search", "/employer/getCvPage"})
+    @PreAuthorize("hasAnyAuthority('EMPLOYER', 'ROLE_EMPLOYER', 'ADMIN', 'ROLE_ADMIN', 'RECRUITER')")
+    public ResponseEntity<ListDataRes<EmployerCvResponse>> filterCvsForEmployer(
+            @RequestBody(required = false) CvPageRequest request
+    ) {
+        if (request == null) {
+            request = new CvPageRequest();
+        }
+        ListDataRes<EmployerCvResponse> response = cvService.filterCvsForEmployer(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/employer/search")
+    @PreAuthorize("hasAnyAuthority('EMPLOYER', 'ROLE_EMPLOYER', 'ADMIN', 'ROLE_ADMIN', 'RECRUITER')")
+    public ResponseEntity<ListDataRes<EmployerCvResponse>> searchCvsForEmployer(
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "educationLevel", required = false) String educationLevel,
+            @RequestParam(value = "yearsTotalMin", required = false) Double yearsTotalMin,
+            @RequestParam(value = "yearsTotalMax", required = false) Double yearsTotalMax,
+            @RequestParam(value = "isDefault", required = false) Boolean isDefault,
+            @RequestParam(value = "pageIndex", defaultValue = "1") int pageIndex,
+            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
+            @RequestParam(value = "sortBy", required = false) String sortBy,
+            @RequestParam(value = "sortDirection", required = false) String sortDirection
+    ) {
+        CvPageRequest request = new CvPageRequest();
+        request.setPageIndex(pageIndex);
+        request.setPageSize(pageSize);
+        request.setKeyword(keyword);
+        request.setEducationLevel(educationLevel);
+        request.setYearsTotalMin(yearsTotalMin);
+        request.setYearsTotalMax(yearsTotalMax);
+        request.setIsDefault(isDefault);
+        request.setSortBy(sortBy);
+        if (sortDirection != null && !sortDirection.isBlank()) {
+            request.setSortDirection(SortDirectionEnum.fromValue(sortDirection));
+        }
+        ListDataRes<EmployerCvResponse> response = cvService.filterCvsForEmployer(request);
+        return ResponseEntity.ok(response);
     }
 }

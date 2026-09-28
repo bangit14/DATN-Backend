@@ -1,6 +1,8 @@
 package com.backend.jobservice.controller;
 
 import com.backend.jobservice.dto.request.JobPostRequest;
+import com.backend.jobservice.dto.request.JobPostPageRequest;
+import com.backend.jobservice.dto.response.ListDataRes;
 import com.backend.jobservice.dto.request.JobPostUpdateRequest;
 import com.backend.jobservice.dto.response.ApiResponse;
 import com.backend.jobservice.dto.response.JobPostResponse;
@@ -20,6 +22,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -191,6 +194,25 @@ public class JobPostController {
         ));
     }
 
+    @PostMapping({"/getJobPostPage", "/filter", "/search"})
+    public ResponseEntity<ApiResponse<ListDataRes<JobPostSummaryResponse>>> getJobPostPage(
+            @RequestBody(required = false) JobPostPageRequest request
+    ) {
+        if (request == null) {
+            request = new JobPostPageRequest();
+        }
+        ListDataRes<JobPostSummaryResponse> result = jobPostService.getJobPostPage(request);
+        return ResponseEntity
+                .status(SuccessCode.INTERNSHIP_POST_FETCHED.getStatus())
+                .body(ApiResponse.success(
+                        SuccessCode.INTERNSHIP_POST_FETCHED.getCode(),
+                        SuccessCode.INTERNSHIP_POST_FETCHED.getMessage(),
+                        result
+                ));
+    }
+
+
+
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<Page<JobPostSummaryResponse>>> searchPosts(
             @RequestParam(value = "keyword", required = false, defaultValue = "") String keyword,
@@ -198,6 +220,7 @@ public class JobPostController {
             @RequestParam(value = "location", required = false) String location,
             @RequestParam(value = "skillId", required = false) UUID skillId,
             @RequestParam(value = "companyId", required = false) UUID companyId,
+            @RequestParam(value = "level", required = false) String level,
             @PageableDefault(size = 10)
             @SortDefault.SortDefaults({
                     @SortDefault(sort = "expiredAt", direction = Sort.Direction.ASC),
@@ -211,6 +234,7 @@ public class JobPostController {
                 skillId,
                 companyId,
                 location,
+                level,
                 pageable
         );
 
@@ -242,8 +266,8 @@ public class JobPostController {
     }
 
     @GetMapping("/admin/stats")
-    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getAdminStats() {
-        java.util.Map<String, Object> stats = jobPostService.getAdminStats();
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getAdminStats() {
+        Map<String, Object> stats = jobPostService.getAdminStats();
         return ResponseEntity.ok(ApiResponse.success(
                 SuccessCode.INTERNSHIP_POST_FETCHED.getCode(),
                 "Get admin stats successfully",

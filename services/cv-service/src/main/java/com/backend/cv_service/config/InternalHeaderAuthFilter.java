@@ -13,6 +13,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -80,7 +81,7 @@ public class InternalHeaderAuthFilter extends OncePerRequestFilter {
 
     private List<SimpleGrantedAuthority> parseAuthorities(String header) {
         if (header == null || header.isBlank()) return List.of();
-        List<SimpleGrantedAuthority> list = new java.util.ArrayList<>();
+        List<SimpleGrantedAuthority> list = new ArrayList<>();
         for (String raw : header.split(",")) {
             String clean = raw.trim();
             if (clean.isEmpty()) continue;

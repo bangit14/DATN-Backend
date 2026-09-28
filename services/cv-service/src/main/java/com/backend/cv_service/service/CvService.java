@@ -1,16 +1,20 @@
 package com.backend.cv_service.service;
 
+import com.baomidou.mybatisplus.extension.service.IService;
 import com.backend.cv_service.dto.CvDetailDto;
+import com.backend.cv_service.dto.CvPageRequest;
 import com.backend.cv_service.dto.CvSummaryDto;
+import com.backend.cv_service.dto.EmployerCvResponse;
+import com.backend.cv_service.dto.response.ListDataRes;
+import com.backend.cv_service.entity.CV;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
 
-import com.baomidou.mybatisplus.extension.service.IService;
-import com.backend.cv_service.entity.CV;
-
 public interface CvService extends IService<CV> {
+
+    ListDataRes<EmployerCvResponse> filterCvsForEmployer(CvPageRequest request);
 
 
 //  Tải lên một file CV mới, lưu trữ và trả về thông tin tóm tắt.

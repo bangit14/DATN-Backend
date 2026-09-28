@@ -1,6 +1,16 @@
 package com.backend.jobservice.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.backend.jobservice.core.enums.FilterOpEnum;
+import com.backend.jobservice.core.enums.SortDirectionEnum;
+import com.backend.jobservice.core.utils.PropertyColumnUtil;
+import com.backend.jobservice.core.utils.QueryFilterUtils;
+import com.backend.jobservice.dto.request.JobPostFieldFilter;
+import com.backend.jobservice.dto.request.JobPostPageRequest;
+import com.backend.jobservice.dto.request.GroupMappedJobPostFieldFilter;
+import com.backend.jobservice.dto.request.MappedJobPostFieldFilter;
+import com.backend.jobservice.dto.request.MappedJobPostQuery;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.backend.jobservice.client.AiNlpClient;
 import com.backend.jobservice.client.ProfileClient;
@@ -29,7 +39,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
-import org.springframework.data.domain.Page;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -436,64 +446,164 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostDbMapper, JobPost> im
 
     @Override
     @Transactional(readOnly = true)
-    public Page<JobPostSummaryResponse> searchPosts(
-            String keyword, String workMode,
-            UUID skillId, UUID companyId,
-            String location, Pageable pageable
-    ) {
-        LambdaQueryWrapper<JobPost> wrapper = new LambdaQueryWrapper<JobPost>()
-                .eq(JobPost::getStatus, PostStatus.ACTIVE)
-                .and(w -> w.isNull(JobPost::getExpiredAt).or().gt(JobPost::getExpiredAt, Instant.now()));
-
-        if (keyword != null && !keyword.isBlank()) {
-            String kw = keyword.trim();
-            wrapper.and(w -> w.like(JobPost::getTitle, kw)
-                    .or().like(JobPost::getDescription, kw)
-                    .or().like(JobPost::getRequirements, kw)
-                    .or().like(JobPost::getPosition, kw));
+    public ListDataRes<JobPostSummaryResponse> getJobPostPage(JobPostPageRequest request) {
+        if (request == null) {
+            request = new JobPostPageRequest();
         }
 
-        if (workMode != null && !workMode.isBlank()) {
-            try {
-                wrapper.eq(JobPost::getWorkMode, WorkMode.valueOf(workMode.toUpperCase()));
-            } catch (Exception ignored) {
-            }
-        }
+        MappedJobPostQuery query = buildMappedJobPostQuery(request);
 
-        if (location != null && !location.isBlank()) {
-            wrapper.like(JobPost::getLocation, location.trim());
-        }
+        Page<JobPost> mpPage = new Page<>(query.getPageIndex(), query.getPageSize());
 
-        if (companyId != null) {
-            wrapper.eq(JobPost::getCompanyId, companyId);
-        }
+        List<JobPost> posts = jobPostDbMapper.getJobPostPage(mpPage, query);
 
-        if (skillId != null) {
-            List<JobSkill> jobSkills = jobSkillDbMapper.selectList(
-                new LambdaQueryWrapper<JobSkill>().eq(JobSkill::getSkillId, skillId)
-            );
-            if (jobSkills == null || jobSkills.isEmpty()) {
-                return new PageImpl<>(Collections.emptyList(), pageable, 0);
-            }
-            List<UUID> postIds = jobSkills.stream().map(JobSkill::getJobId).filter(Objects::nonNull).distinct().toList();
-            wrapper.in(JobPost::getId, postIds);
-        }
-
-        wrapper.orderByDesc(JobPost::getCreatedAt);
-
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<JobPost> mpPage =
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageable.getPageNumber() + 1, pageable.getPageSize());
-
-        jobPostDbMapper.selectPage(mpPage, wrapper);
-
-        List<JobPost> posts = mpPage.getRecords();
         List<JobPostSummaryResponse> summaries = posts.stream()
                 .map(this::toJobPostSummaryResponse)
                 .collect(Collectors.toList());
 
         fillCompanyNames(posts, summaries);
 
-        return new PageImpl<>(summaries, pageable, mpPage.getTotal());
+        return new ListDataRes<>(summaries, mpPage);
+    }
+
+    private MappedJobPostQuery buildMappedJobPostQuery(JobPostPageRequest request) {
+        boolean[] hasExplicitStatusHolder = new boolean[]{false};
+        List<GroupMappedJobPostFieldFilter> mappedGroups = mapGroupFilters(request.getPostFieldFilter(), hasExplicitStatusHolder);
+
+        MappedJobPostQuery query = new MappedJobPostQuery();
+        query.setPageIndex(request.getPageIndex());
+        query.setPageSize(request.getPageSize());
+        query.setKeyword(request.getKeyword() != null ? request.getKeyword().trim() : null);
+        query.setSkillId(request.getSkillId());
+        query.setCompanyId(request.getCompanyId());
+        query.setPostIds(request.getPostIds());
+        query.setFilters(mappedGroups);
+        query.setHaveFilter(!mappedGroups.isEmpty());
+        query.setHasExplicitStatus(hasExplicitStatusHolder[0]);
+
+        if (request.getSortBy() != null && !request.getSortBy().isBlank()) {
+            String sortCol = PropertyColumnUtil.getColumn(JobPost.class, request.getSortBy().trim());
+            if (sortCol == null && request.getSortBy().trim().matches("^[a-zA-Z0-9_]+$")) {
+                sortCol = request.getSortBy().trim();
+            }
+            if (sortCol != null) {
+                query.setSortBy("t0." + sortCol);
+                query.setSortDirection(request.getSortDirection() != null ? request.getSortDirection().getDisplayName() : "DESC");
+            }
+        }
+
+        return query;
+    }
+
+    private List<GroupMappedJobPostFieldFilter> mapGroupFilters(List<List<JobPostFieldFilter>> rawGroups, boolean[] hasExplicitStatusHolder) {
+        if (rawGroups == null || rawGroups.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<GroupMappedJobPostFieldFilter> mappedGroups = new ArrayList<>();
+        for (List<JobPostFieldFilter> orGroup : rawGroups) {
+            if (orGroup == null || orGroup.isEmpty()) continue;
+
+            List<MappedJobPostFieldFilter> andFilters = new ArrayList<>();
+            for (JobPostFieldFilter filter : orGroup) {
+                MappedJobPostFieldFilter mapped = mapFieldFilter(filter, hasExplicitStatusHolder);
+                if (mapped != null) {
+                    andFilters.add(mapped);
+                }
+            }
+
+            if (!andFilters.isEmpty()) {
+                GroupMappedJobPostFieldFilter group = new GroupMappedJobPostFieldFilter();
+                group.setFilters(andFilters);
+                mappedGroups.add(group);
+            }
+        }
+        return mappedGroups;
+    }
+
+    private MappedJobPostFieldFilter mapFieldFilter(JobPostFieldFilter filter, boolean[] hasExplicitStatusHolder) {
+        if (filter == null || filter.getField() == null || filter.getField().isBlank()
+                || filter.getValue() == null || filter.getValue().isBlank()) {
+            return null;
+        }
+
+        String fieldName = filter.getField().trim();
+        if ("status".equalsIgnoreCase(fieldName)) {
+            hasExplicitStatusHolder[0] = true;
+        }
+
+        String col = PropertyColumnUtil.getColumn(JobPost.class, fieldName);
+        if (col == null || col.isBlank()) {
+            if (fieldName.matches("^[a-zA-Z0-9_]+$")) {
+                col = fieldName;
+            } else {
+                return null;
+            }
+        }
+
+        FilterOpEnum op = (filter.getOp() != null) ? filter.getOp() : FilterOpEnum.EQUAL;
+        String val = filter.getValue().trim();
+
+        MappedJobPostFieldFilter r = new MappedJobPostFieldFilter();
+        r.setAlias("t0.");
+        r.setField(col);
+        r.setOp(" " + op.getSqlOp() + " ");
+
+        if (op == FilterOpEnum.CONTAINS || op == FilterOpEnum.DO_NOT_CONTAIN) {
+            if (!val.startsWith("%") && !val.endsWith("%")) {
+                val = "%" + val + "%";
+            }
+            r.setValue(val);
+            r.setListValue(false);
+        } else if (op == FilterOpEnum.IN || op == FilterOpEnum.NOT_IN) {
+            String[] tokens = val.replace("[", "").replace("]", "").split(",");
+            List<String> elList = new ArrayList<>();
+            for (String t : tokens) {
+                String trimmed = t.trim().replace("\"", "").replace("'", "");
+                if (!trimmed.isEmpty()) {
+                    elList.add(trimmed);
+                }
+            }
+            r.setValue(elList);
+            r.setListValue(true);
+        } else {
+            r.setValue(val);
+            r.setListValue(false);
+        }
+
+        return r;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<JobPostSummaryResponse> searchPosts(
+            String keyword, String workMode,
+            UUID skillId, UUID companyId,
+            String location, String level, Pageable pageable
+    ) {
+        JobPostPageRequest request = new JobPostPageRequest();
+        request.setPageIndex(pageable.getPageNumber() + 1);
+        request.setPageSize(pageable.getPageSize());
+        request.setKeyword(keyword);
+        request.setSkillId(skillId);
+        request.setCompanyId(companyId);
+
+        List<JobPostFieldFilter> andFilters = new ArrayList<>();
+        if (workMode != null && !workMode.isBlank() && !"ALL".equalsIgnoreCase(workMode)) {
+            andFilters.add(new JobPostFieldFilter("workMode", FilterOpEnum.EQUAL, workMode.toUpperCase()));
+        }
+        if (location != null && !location.isBlank()) {
+            andFilters.add(new JobPostFieldFilter("location", FilterOpEnum.CONTAINS, location.trim()));
+        }
+        if (level != null && !level.isBlank()) {
+            andFilters.add(new JobPostFieldFilter("level", FilterOpEnum.EQUAL, level.trim()));
+        }
+        if (!andFilters.isEmpty()) {
+            request.setPostFieldFilter(List.of(andFilters));
+        }
+
+        ListDataRes<JobPostSummaryResponse> res = getJobPostPage(request);
+        return new PageImpl<>(res.getList(), pageable, res.getTotal());
     }
 
     private void fillCompanyNames(List<JobPost> posts, List<JobPostSummaryResponse> summaries) {
@@ -636,10 +746,9 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostDbMapper, JobPost> im
 
     @Override
     @Transactional(readOnly = true)
-    public Page<JobPostResponse> getMyPosts(UUID employerUserId, int page, int size) {
+    public org.springframework.data.domain.Page<JobPostResponse> getMyPosts(UUID employerUserId, int page, int size) {
         Objects.requireNonNull(employerUserId, "Employer User ID must not be null");
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<JobPost> mpPage =
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page + 1, size);
+        Page<JobPost> mpPage = new Page<>(page + 1, size);
 
         LambdaQueryWrapper<JobPost> wrapper = new LambdaQueryWrapper<JobPost>()
                 .eq(JobPost::getPostedBy, employerUserId)

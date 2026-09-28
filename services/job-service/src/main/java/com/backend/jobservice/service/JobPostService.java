@@ -1,15 +1,18 @@
 package com.backend.jobservice.service;
 
+import com.backend.jobservice.dto.request.JobPostPageRequest;
 import com.backend.jobservice.dto.request.JobPostRequest;
 import com.backend.jobservice.dto.request.JobPostUpdateRequest;
 import com.backend.jobservice.dto.response.JobPostResponse;
 import com.backend.jobservice.dto.response.JobPostSummaryResponse;
+import com.backend.jobservice.dto.response.ListDataRes;
 import com.backend.jobservice.entity.JobPost;
 import com.baomidou.mybatisplus.extension.service.IService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public interface JobPostService extends IService<JobPost> {
@@ -22,7 +25,9 @@ public interface JobPostService extends IService<JobPost> {
 
     JobPostResponse getPostDetail(UUID postId);
 
-    Page<JobPostSummaryResponse> searchPosts(String keyword, String workMode, UUID skillId, UUID companyId, String location, Pageable pageable);
+    ListDataRes<JobPostSummaryResponse> getJobPostPage(JobPostPageRequest request);
+
+    Page<JobPostSummaryResponse> searchPosts(String keyword, String workMode, UUID skillId, UUID companyId, String location, String level, Pageable pageable);
 
     JobPostResponse approvePost(UUID postId, UUID adminId);
 
@@ -38,5 +43,5 @@ public interface JobPostService extends IService<JobPost> {
 
     List<JobPostSummaryResponse> getRejectedAndHiddenPosts();
 
-    java.util.Map<String, Object> getAdminStats();
+    Map<String, Object> getAdminStats();
 }

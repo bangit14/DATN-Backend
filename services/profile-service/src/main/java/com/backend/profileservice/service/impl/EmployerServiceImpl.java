@@ -10,6 +10,7 @@ import com.backend.profileservice.dto.response.EmployerResponse;
 import com.backend.profileservice.entity.Company;
 import com.backend.profileservice.entity.Employer;
 import com.backend.profileservice.enums.ErrorCode;
+import com.backend.profileservice.enums.Gender;
 import com.backend.profileservice.exception.AppException;
 import com.backend.profileservice.mapper.EmployerMapper;
 import com.backend.profileservice.mapper.db.CompanyDbMapper;
@@ -236,12 +237,23 @@ public class EmployerServiceImpl extends BaseService<EmployerDbMapper, Employer>
     @Transactional(rollbackFor = Exception.class)
     public void autoCreateProfile(AutoCreateProfileRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        autoCreateProfile(request.getUserId(), request.getFullName());
+        autoCreateProfile(
+                request.getUserId(),
+                request.getFullName(),
+                request.getPhone(),
+                request.getAvatarUrl(),
+                request.getPosition(),
+                request
+        );
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void autoCreateProfile(UUID userId, String fullName) {
+        autoCreateProfile(userId, fullName, null, null, null, null);
+    }
+
+    private void autoCreateProfile(UUID userId, String fullName, String phone, String avatarUrl, String position, AutoCreateProfileRequest request) {
         Objects.requireNonNull(userId, "userId must not be null");
         boolean exists = employerDbMapper.exists(
                 new LambdaQueryWrapper<Employer>().eq(Employer::getUserId, userId)
@@ -252,13 +264,53 @@ public class EmployerServiceImpl extends BaseService<EmployerDbMapper, Employer>
         }
 
         Employer profile = new Employer();
+        profile.setId(UUID.randomUUID());
         profile.setUserId(userId);
-        profile.setName(fullName != null ? fullName : "Nhà tuyển dụng");
+        profile.setName(fullName != null && !fullName.isBlank() ? fullName.trim() : "Nhà tuyển dụng");
+        profile.setGender(Gender.UNKNOWN);
         profile.setAdmin(false);
+        profile.setPhone(phone != null && !phone.isBlank() ? phone.trim() : null);
+        profile.setAvatarUrl(avatarUrl != null && !avatarUrl.isBlank() ? avatarUrl.trim() : null);
+        profile.setPosition(position != null && !position.isBlank() ? position.trim() : null);
         profile.setCreatedAt(Instant.now());
         profile.setUpdatedAt(Instant.now());
 
         employerDbMapper.insert(profile);
+
+        if (request != null && request.getCompanyName() != null && !request.getCompanyName().isBlank()) {
+            String companyName = request.getCompanyName().trim();
+            boolean companyExists = companyDbMapper.exists(
+                    new LambdaQueryWrapper<Company>().eq(Company::getName, companyName)
+            );
+            if (companyExists) {
+                throw new AppException(ErrorCode.COMPANY_NAME_EXISTED);
+            }
+
+            Company company = new Company();
+            company.setId(UUID.randomUUID());
+            company.setName(companyName);
+            company.setIndustry(clean(request.getCompanyIndustry()));
+            company.setDescription(clean(request.getCompanyDescription()));
+            company.setLogoUrl(clean(request.getCompanyLogoUrl()));
+            company.setWebsiteUrl(clean(request.getCompanyWebsiteUrl()));
+            company.setAddress(clean(request.getCompanyAddress()));
+            company.setCompanySize(clean(request.getCompanySize()));
+            company.setVerificationStatus("PENDING");
+            company.setCreatedAt(Instant.now());
+            company.setUpdatedAt(Instant.now());
+            companyDbMapper.insert(company);
+
+            profile.setCompanyId(company.getId());
+            profile.setAdmin(true);
+            profile.setUpdatedAt(Instant.now());
+            employerDbMapper.updateById(profile);
+            log.info("Auto-created company id={} and linked it to employer userId={}", company.getId(), userId);
+        }
+
         log.info("Auto-created employer profile for userId={}", userId);
+    }
+
+    private String clean(String value) {
+        return value != null && !value.isBlank() ? value.trim() : null;
     }
 }

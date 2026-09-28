@@ -2,12 +2,19 @@ package com.backend.cv_service.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.backend.cv_service.client.AiNlpClient;
 import com.backend.cv_service.client.ProfileClient;
+import com.backend.cv_service.core.enums.FilterOpEnum;
+import com.backend.cv_service.core.utils.PropertyColumnUtil;
 import com.backend.cv_service.dto.*;
+import com.backend.cv_service.dto.response.ListDataRes;
 import com.backend.cv_service.entity.CV;
+import com.backend.cv_service.entity.CvNorm;
 import com.backend.cv_service.exception.ResourceNotFoundException;
 import com.backend.cv_service.mapper.db.CVDbMapper;
+import com.backend.cv_service.mapper.db.CvNormDbMapper;
 import com.backend.cv_service.service.CvNormService;
 import com.backend.cv_service.service.CvService;
 import com.backend.cv_service.service.S3FileStorageService;
@@ -21,16 +28,18 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 
 @Service
 @RequiredArgsConstructor
 public class CvServiceImpl extends ServiceImpl<CVDbMapper, CV> implements CvService {
     private final CVDbMapper cvDbMapper;
+    private final CvNormDbMapper cvNormDbMapper;
     private final S3FileStorageService s3FileStorageService;
     private final CvNormService cvNormService;
     private final AiNlpClient aiNlpClient;
@@ -200,5 +209,186 @@ public class CvServiceImpl extends ServiceImpl<CVDbMapper, CV> implements CvServ
         }
         cv.setDefault(true);
         cvDbMapper.updateById(cv);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ListDataRes<EmployerCvResponse> filterCvsForEmployer(CvPageRequest request) {
+        if (request == null) {
+            request = new CvPageRequest();
+        }
+
+        MappedCvQuery query = buildMappedCvQuery(request);
+
+        Page<CV> page = new Page<>(query.getPageIndex(), query.getPageSize());
+
+        List<CV> cvList = cvDbMapper.getCvPageForEmployer(page, query);
+
+        if (!cvList.isEmpty()) {
+            List<Long> cvIds = cvList.stream().map(CV::getId).collect(Collectors.toList());
+            List<CvNorm> norms = cvNormDbMapper.selectBatchIds(cvIds);
+            if (norms != null && !norms.isEmpty()) {
+                Map<Long, CvNorm> normMap = norms.stream()
+                        .collect(Collectors.toMap(CvNorm::getCvId, n -> n, (a, b) -> a));
+                for (CV cv : cvList) {
+                    cv.setCvNorm(normMap.get(cv.getId()));
+                }
+            }
+        }
+
+        List<EmployerCvResponse> responses = cvList.stream()
+                .map(this::mapToEmployerCvResponse)
+                .collect(Collectors.toList());
+
+        return new ListDataRes<>(responses, page);
+    }
+
+    private EmployerCvResponse mapToEmployerCvResponse(CV cv) {
+        if (cv == null) return null;
+        EmployerCvResponse.EmployerCvResponseBuilder builder = EmployerCvResponse.builder()
+                .id(cv.getId())
+                .studentId(cv.getStudentId())
+                .cvName(cv.getCvName())
+                .templateId(cv.getTemplateId())
+                .cvUrl(cv.getCvUrl())
+                .pdfUrl(cv.getPdfUrl())
+                .isDefault(cv.isDefault())
+                .rawText(cv.getRawText())
+                .nlpStatus(cv.getNlpStatus())
+                .processedAt(cv.getProcessedAt())
+                .createdAt(cv.getCreatedAt())
+                .updatedAt(cv.getUpdatedAt());
+
+        CvNorm norm = cv.getCvNorm();
+        if (norm != null) {
+            builder.yearsTotal(norm.getYearsTotal())
+                    .educationLevel(norm.getEducationLevel())
+                    .modelVersion(norm.getModelVersion())
+                    .skillsNorm(norm.getSkillsNorm())
+                    .experienceTitles(norm.getExperienceTitles())
+                    .experienceAreas(norm.getExperienceAreas())
+                    .educationMajors(norm.getEducationMajors());
+        }
+
+        return builder.build();
+    }
+
+    private MappedCvQuery buildMappedCvQuery(CvPageRequest request) {
+        List<GroupMappedCvFieldFilter> mappedGroups = mapGroupFilters(request.getCvFieldFilter());
+
+        MappedCvQuery query = new MappedCvQuery();
+        query.setPageIndex(request.getPageIndex());
+        query.setPageSize(request.getPageSize());
+        query.setKeyword(request.getKeyword() != null ? request.getKeyword().trim() : null);
+        query.setStudentId(request.getStudentId());
+        query.setIsDefault(request.getIsDefault());
+        query.setNlpStatus(request.getNlpStatus() != null ? request.getNlpStatus().trim() : null);
+        query.setEducationLevel(request.getEducationLevel() != null ? request.getEducationLevel().trim() : null);
+        query.setYearsTotalMin(request.getYearsTotalMin());
+        query.setYearsTotalMax(request.getYearsTotalMax());
+        query.setCvIds(request.getCvIds());
+        query.setFilters(mappedGroups);
+        query.setHaveFilter(!mappedGroups.isEmpty());
+
+        if (request.getSortBy() != null && !request.getSortBy().isBlank()) {
+            String sortField = request.getSortBy().trim();
+            String alias = isNormField(sortField) ? "t1." : "t0.";
+            Class<?> entityClass = isNormField(sortField) ? CvNorm.class : CV.class;
+            String sortCol = PropertyColumnUtil.getColumn(entityClass, sortField);
+            if (sortCol == null && sortField.matches("^[a-zA-Z0-9_]+$")) {
+                sortCol = sortField;
+            }
+            if (sortCol != null) {
+                query.setSortBy(alias + sortCol);
+                query.setSortDirection(request.getSortDirection() != null ? request.getSortDirection().getDisplayName() : "DESC");
+            }
+        }
+
+        return query;
+    }
+
+    private List<GroupMappedCvFieldFilter> mapGroupFilters(List<List<CvFieldFilter>> rawGroups) {
+        if (rawGroups == null || rawGroups.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<GroupMappedCvFieldFilter> mappedGroups = new ArrayList<>();
+        for (List<CvFieldFilter> orGroup : rawGroups) {
+            if (orGroup == null || orGroup.isEmpty()) continue;
+
+            List<MappedCvFieldFilter> andFilters = new ArrayList<>();
+            for (CvFieldFilter filter : orGroup) {
+                MappedCvFieldFilter mapped = mapFieldFilter(filter);
+                if (mapped != null) {
+                    andFilters.add(mapped);
+                }
+            }
+
+            if (!andFilters.isEmpty()) {
+                GroupMappedCvFieldFilter group = new GroupMappedCvFieldFilter();
+                group.setFilters(andFilters);
+                mappedGroups.add(group);
+            }
+        }
+        return mappedGroups;
+    }
+
+    private MappedCvFieldFilter mapFieldFilter(CvFieldFilter filter) {
+        if (filter == null || filter.getField() == null || filter.getField().isBlank()
+                || filter.getValue() == null || filter.getValue().isBlank()) {
+            return null;
+        }
+
+        String fieldName = filter.getField().trim();
+        boolean isNorm = isNormField(fieldName);
+        String alias = isNorm ? "t1." : "t0.";
+        Class<?> entityClass = isNorm ? CvNorm.class : CV.class;
+
+        String col = PropertyColumnUtil.getColumn(entityClass, fieldName);
+        if (col == null || col.isBlank()) {
+            if (fieldName.matches("^[a-zA-Z0-9_]+$")) {
+                col = fieldName;
+            } else {
+                return null;
+            }
+        }
+
+        FilterOpEnum op = (filter.getOp() != null) ? filter.getOp() : FilterOpEnum.EQUAL;
+        String val = filter.getValue().trim();
+
+        MappedCvFieldFilter r = new MappedCvFieldFilter();
+        r.setAlias(alias);
+        r.setField(col);
+        r.setOp(" " + op.getSqlOp() + " ");
+
+        if (op == FilterOpEnum.CONTAINS || op == FilterOpEnum.DO_NOT_CONTAIN) {
+            if (!val.startsWith("%") && !val.endsWith("%")) {
+                val = "%" + val + "%";
+            }
+            r.setValue(val);
+            r.setListValue(false);
+        } else if (op == FilterOpEnum.IN || op == FilterOpEnum.NOT_IN) {
+            String[] tokens = val.replace("[", "").replace("]", "").split(",");
+            List<String> elList = new ArrayList<>();
+            for (String t : tokens) {
+                String trimmed = t.trim().replace("\"", "").replace("'", "");
+                if (!trimmed.isEmpty()) {
+                    elList.add(trimmed);
+                }
+            }
+            r.setValue(elList);
+            r.setListValue(true);
+        } else {
+            r.setValue(val);
+            r.setListValue(false);
+        }
+
+        return r;
+    }
+
+    private boolean isNormField(String field) {
+        if (field == null) return false;
+        String f = field.toLowerCase();
+        return f.contains("year") || f.contains("education") || f.contains("model");
     }
 }

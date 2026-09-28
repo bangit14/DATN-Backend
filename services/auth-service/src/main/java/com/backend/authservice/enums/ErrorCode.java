@@ -20,6 +20,7 @@ public enum ErrorCode {
     UNAUTHORIZED("AUTH_009", "Unauthorized", HttpStatus.UNAUTHORIZED),
     INVALID_GOOGLE_TOKEN("AUTH_010", "Invalid Google ID token", HttpStatus.UNAUTHORIZED),
     PROFILE_CREATION_FAILED("AUTH_011", "Failed to create user profile in profile service", HttpStatus.INTERNAL_SERVER_ERROR),
+    EMPLOYER_REGISTRATION_DISABLED("AUTH_012", "Employer accounts must be created by an administrator", HttpStatus.FORBIDDEN),
     ;
 
     private final String code;

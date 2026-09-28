@@ -22,6 +22,32 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS idx_files_owner_id ON files(owner_account_id);
 CREATE INDEX IF NOT EXISTS idx_files_purpose ON files(purpose);
 
+CREATE TABLE IF NOT EXISTS cvs (
+    id BIGSERIAL PRIMARY KEY,
+    student_id UUID NOT NULL,
+    cv_name VARCHAR(255) NOT NULL,
+    template_id UUID,
+    content_json TEXT,
+    pdf_url VARCHAR(500),
+    cv_url VARCHAR(500),
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    raw_text TEXT,
+    nlp_status VARCHAR(50),
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cv_norm (
+    cv_id BIGINT PRIMARY KEY,
+    years_total DOUBLE PRECISION,
+    education_level VARCHAR(100),
+    model_version VARCHAR(50),
+    processed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_cvs_student_id ON cvs(student_id);
+
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cvs' AND column_name='template_id') THEN

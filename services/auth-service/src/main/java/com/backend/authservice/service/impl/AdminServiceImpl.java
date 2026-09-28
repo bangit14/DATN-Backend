@@ -9,6 +9,7 @@ import com.backend.authservice.dto.admin.AdminUserSummary;
 import com.backend.authservice.dto.admin.PageResponse;
 import com.backend.authservice.dto.admin.UpdateUserRoleRequest;
 import com.backend.authservice.dto.admin.UpdateUserStatusRequest;
+import com.backend.authservice.dto.admin.CreateEmployerRequest;
 import com.backend.authservice.entity.RefreshToken;
 import com.backend.authservice.entity.UserAccount;
 import com.backend.authservice.enums.ErrorCode;
@@ -145,12 +146,94 @@ public class AdminServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount
         user.setRole(req.getRole());
         userAccountMapper.updateById(user);
 
+        if (req.getRole() == Role.EMPLOYER) {
+            ensureEmployerProfile(user);
+        }
+
         Long tokenCount = refreshTokenMapper.selectCount(
                 new LambdaQueryWrapper<RefreshToken>().eq(RefreshToken::getAccountId, userId)
         );
         AdminUserDetail detail = toDetail(user, tokenCount != null ? tokenCount.intValue() : 0);
         fetchAndPopulateProfile(detail, user);
         return detail;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AdminUserDetail createEmployer(CreateEmployerRequest req) {
+        Objects.requireNonNull(req, "request must not be null");
+
+        String email = req.getEmail().trim().toLowerCase();
+        if (userAccountMapper.exists(new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getEmail, email))) {
+            throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
+        }
+
+        UserAccount user = new UserAccount();
+        user.setId(UUID.randomUUID());
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode(req.getPassword()));
+        user.setRole(Role.EMPLOYER);
+        user.setAccountType(com.backend.authservice.enums.AccountType.DEFAULT);
+        user.setStatus(AccountStatus.ACTIVE);
+        user.setCreatedAt(java.time.Instant.now());
+        user.setUpdatedAt(java.time.Instant.now());
+        userAccountMapper.insert(user);
+
+        try {
+            ensureEmployerProfile(user, req);
+        } catch (RuntimeException ex) {
+            userAccountMapper.deleteById(user.getId());
+            throw ex;
+        }
+
+        AdminUserDetail detail = toDetail(user, 0);
+        fetchAndPopulateProfile(detail, user);
+        return detail;
+    }
+
+    private void ensureEmployerProfile(UserAccount user) {
+        ensureEmployerProfile(user, null, null);
+    }
+
+    private void ensureEmployerProfile(UserAccount user, CreateEmployerRequest req) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("userId", user.getId());
+        body.put("fullName", req.getFullName());
+        body.put("email", user.getEmail());
+        body.put("phone", req.getPhone());
+        body.put("companyName", req.getCompanyName());
+        body.put("companyIndustry", req.getCompanyIndustry());
+        body.put("companyDescription", req.getCompanyDescription());
+        body.put("companyLogoUrl", req.getCompanyLogoUrl());
+        body.put("companyWebsiteUrl", req.getCompanyWebsiteUrl());
+        body.put("companyAddress", req.getCompanyAddress());
+        body.put("companySize", req.getCompanySize());
+
+        postEmployerProvisionRequest(user, body);
+    }
+
+    private void ensureEmployerProfile(UserAccount user, String fullName, String phone) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("userId", user.getId());
+        body.put("fullName", fullName != null ? fullName : user.getEmail());
+        body.put("email", user.getEmail());
+        if (phone != null && !phone.isBlank()) {
+            body.put("phone", phone);
+        }
+
+        postEmployerProvisionRequest(user, body);
+    }
+
+    private void postEmployerProvisionRequest(UserAccount user, Map<String, Object> body) {
+        try {
+            String url = profileServiceUrl + "/employers/auto-create";
+            restTemplate.postForEntity(url, body, Void.class);
+            log.info("Ensured employer profile for userId={}", user.getId());
+        } catch (Exception ex) {
+            log.error("Could not create employer profile for userId={}: {}", user.getId(), ex.getMessage(), ex);
+            throw new AppException(ErrorCode.PROFILE_CREATION_FAILED,
+                    "Không thể tạo hồ sơ nhà tuyển dụng cho tài khoản mới.");
+        }
     }
 
     @Override

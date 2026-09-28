@@ -2,6 +2,7 @@ package com.backend.cv_service.core.base;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.backend.cv_service.core.base.paging.BasePageQuery;
@@ -25,9 +26,9 @@ public class BaseService<M extends BaseMapper<T>, T> extends ServiceImpl<M, T> i
             OrderByItem orderByItem = basePageQuery.getOrderBy();
             if (orderByItem.getColumn() != null && !orderByItem.getColumn().isBlank()) {
                 if (orderByItem.isAsc()) {
-                    page.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.asc(orderByItem.getColumn()));
+                    page.addOrder(OrderItem.asc(orderByItem.getColumn()));
                 } else {
-                    page.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.desc(orderByItem.getColumn()));
+                    page.addOrder(OrderItem.desc(orderByItem.getColumn()));
                 }
                 return page;
             }
@@ -35,9 +36,9 @@ public class BaseService<M extends BaseMapper<T>, T> extends ServiceImpl<M, T> i
 
         if (defaultColumn != null && !defaultColumn.isBlank()) {
             if (defaultAsc) {
-                page.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.asc(defaultColumn));
+                page.addOrder(OrderItem.asc(defaultColumn));
             } else {
-                page.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.desc(defaultColumn));
+                page.addOrder(OrderItem.desc(defaultColumn));
             }
         }
         return page;

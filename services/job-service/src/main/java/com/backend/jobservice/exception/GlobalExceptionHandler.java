@@ -52,7 +52,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleJsonParse(HttpMessageNotReadableException ex) {
         Throwable cause = ex.getMostSpecificCause();
 
-        if (cause instanceof com.fasterxml.jackson.databind.exc.InvalidFormatException) {
+        if (cause instanceof InvalidFormatException) {
             InvalidFormatException ife = (InvalidFormatException) cause;
             if (ife.getTargetType().isEnum()) {
                 String allowed = Arrays.toString(ife.getTargetType().getEnumConstants());

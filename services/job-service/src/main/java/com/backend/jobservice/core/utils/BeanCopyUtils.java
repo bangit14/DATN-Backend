@@ -2,10 +2,9 @@ package com.backend.jobservice.core.utils;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.beanutils.BeanUtils;
+import org.springframework.beans.BeanUtils;
 
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -15,10 +14,8 @@ public class BeanCopyUtils {
     private BeanCopyUtils() {}
 
     public static void copyProperties(final Object dest, final Object orig) {
-        try {
-            BeanUtils.copyProperties(dest, orig);
-        } catch (IllegalAccessException | InvocationTargetException e) {
-            throw new RuntimeException(e);
+        if (dest != null && orig != null) {
+            BeanUtils.copyProperties(orig, dest);
         }
     }
 
@@ -28,8 +25,8 @@ public class BeanCopyUtils {
             return destinationList;
         }
         for (T source : sourceList) {
-            R target = org.springframework.beans.BeanUtils.instantiateClass(targetClass);
-            org.springframework.beans.BeanUtils.copyProperties(source, target);
+            R target = BeanUtils.instantiateClass(targetClass);
+            BeanUtils.copyProperties(source, target);
             destinationList.add(target);
         }
         return destinationList;

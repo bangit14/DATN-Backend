@@ -1,6 +1,7 @@
 package com.backend.jobservice.core.enums;
 
 import com.baomidou.mybatisplus.annotation.EnumValue;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 import java.util.Map;
@@ -50,5 +51,20 @@ public enum FilterOpEnum implements PersistentEnum<Integer> {
     @Override
     public Map<Integer, ? extends PersistentEnum<Integer>> getAll() {
         return INDEX;
+    }
+
+    @JsonCreator
+    public static FilterOpEnum fromValue(Object val) {
+        if (val == null) return null;
+        String s = val.toString().trim();
+        for (FilterOpEnum e : values()) {
+            if (String.valueOf(e.value).equals(s)
+                    || e.name().equalsIgnoreCase(s)
+                    || e.desc.equalsIgnoreCase(s)
+                    || e.sqlOp.equalsIgnoreCase(s)) {
+                return e;
+            }
+        }
+        return null;
     }
 }
