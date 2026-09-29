@@ -1,0 +1,38 @@
+server:
+  port: ${RECRUITMENT_PORT:8083}
+
+spring:
+  application:
+    name: recruitment-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:intern_network}?currentSchema=${RECRUITMENT_DB_SCHEMA:recruitment_schema}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:password}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    schemas: ${RECRUITMENT_DB_SCHEMA:recruitment_schema}
+    default-schema: ${RECRUITMENT_DB_SCHEMA:recruitment_schema}
+    create-schemas: true
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+# URLs are centralized here; job and application domains use logical targets.
+integrations:
+  candidate:
+    base-url: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
+  recruitment:
+    base-url: ${RECRUITMENT_SERVICE_URL:http://localhost:${RECRUITMENT_PORT:8083}}
+  matching:
+    base-url: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
+  ai-nlp:
+    base-url: ${AI_NLP_SERVICE_URL:http://localhost:8087}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

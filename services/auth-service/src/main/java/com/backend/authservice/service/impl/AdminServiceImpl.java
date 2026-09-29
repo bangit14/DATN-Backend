@@ -42,7 +42,7 @@ public class AdminServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount
     private final PasswordEncoder passwordEncoder;
     private final RestTemplate restTemplate;
 
-    @Value("${app.services.profile-url:http://localhost:8082/api/profile}")
+    @Value("${integrations.candidate.profile-api-url:http://localhost:8082/api/profile}")
     private String profileServiceUrl;
 
     @Override
@@ -202,6 +202,7 @@ public class AdminServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount
         body.put("email", user.getEmail());
         body.put("phone", req.getPhone());
         body.put("companyName", req.getCompanyName());
+        body.put("companyTaxCode", req.getCompanyTaxCode());
         body.put("companyIndustry", req.getCompanyIndustry());
         body.put("companyDescription", req.getCompanyDescription());
         body.put("companyLogoUrl", req.getCompanyLogoUrl());

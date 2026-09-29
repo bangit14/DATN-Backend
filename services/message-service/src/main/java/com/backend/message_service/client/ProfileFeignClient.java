@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.UUID;
 
 @FeignClient(
-        name = "profile-service",
-        url = "${service.profile.base-url}"
+        name = "candidate-service",
+        url = "${integrations.candidate.profile-internal-api-url}"
 )
 public interface ProfileFeignClient {
 

@@ -23,64 +23,50 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE_PATH: services/auth-service
-    env_file: .env.docker
+    env_file: ${ENV_FILE:-.env.docker}
+    environment:
+      DB_HOST: db
+      AUTH_DB_SCHEMA: auth_schema
+      CANDIDATE_SERVICE_URL: http://candidate-service:8082
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "${AUTH_PORT}:${AUTH_PORT}"
 
-  profile-service:
+  candidate-service:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        SERVICE_PATH: services/profile-service
-    env_file: .env.docker
+        SERVICE_PATH: services/candidate-service
+    env_file: ${ENV_FILE:-.env.docker}
+    environment:
+      DB_HOST: db
+      CANDIDATE_PORT: 8082
+      CANDIDATE_DB_SCHEMA: candidate_schema
+      RECRUITMENT_SERVICE_URL: http://recruitment-service:8083
+      CANDIDATE_SERVICE_URL: http://candidate-service:8082
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${PROFILE_PORT}:${PROFILE_PORT}"
 
-  skill-service:
+  recruitment-service:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        SERVICE_PATH: services/skill-service
-    env_file: .env.docker
+        SERVICE_PATH: services/recruitment-service
+    env_file: ${ENV_FILE:-.env.docker}
+    environment:
+      DB_HOST: db
+      RECRUITMENT_PORT: 8083
+      RECRUITMENT_DB_SCHEMA: recruitment_schema
+      CANDIDATE_SERVICE_URL: http://candidate-service:8082
+      RECRUITMENT_SERVICE_URL: http://recruitment-service:8083
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${SKILL_PORT}:${SKILL_PORT}"
-
-  job-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_PATH: services/job-service
-    env_file: .env.docker
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "${JOB_PORT}:${JOB_PORT}"
-
-  cv-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_PATH: services/cv-service
-    env_file: .env.docker
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "${CV_PORT}:${CV_PORT}"
 
   message-service:
     build:
@@ -88,38 +74,16 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE_PATH: services/message-service
-    env_file: .env.docker
+    env_file: ${ENV_FILE:-.env.docker}
+    environment:
+      DB_HOST: db
+      MESSAGE_DB_SCHEMA: message_schema
+      CANDIDATE_SERVICE_URL: http://candidate-service:8082
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "${MESSAGE_PORT}:${MESSAGE_PORT}"
-
-  applying-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_PATH: services/applying-service
-    env_file: .env.docker
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "${APPLYING_PORT}:${APPLYING_PORT}"
-
-  matching-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_PATH: services/matching-service
-    env_file: .env.docker
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "${MATCHING_PORT}:${MATCHING_PORT}"
 
   gateway:
     build:
@@ -127,16 +91,17 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE_PATH: gateway
-    env_file: .env.docker
+    env_file: ${ENV_FILE:-.env.docker}
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8081
+      CANDIDATE_SERVICE_URL: http://candidate-service:8082
+      RECRUITMENT_SERVICE_URL: http://recruitment-service:8083
+      MESSAGE_SERVICE_URL: http://message-service:8084
     depends_on:
       - auth-service
-      - profile-service
-      - job-service
-      - skill-service
-      - cv-service
+      - candidate-service
+      - recruitment-service
       - message-service
-      - applying-service
-      - matching-service
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_PORT}"
 

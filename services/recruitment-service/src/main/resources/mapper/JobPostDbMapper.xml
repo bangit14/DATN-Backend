@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.backend.recruitmentservice.job.mapper.db.JobPostDbMapper">
+
+    <select id="getJobPostPage" parameterType="com.backend.recruitmentservice.job.dto.request.MappedJobPostQuery"
+            resultType="com.backend.recruitmentservice.job.entity.JobPost">
+        select t0.*
+        from job_posts t0
+        where 1 = 1
+        <if test="!query.hasExplicitStatus">
+            and t0.status = 'ACTIVE'
+            and (t0.expired_at is null or t0.expired_at &gt; current_timestamp)
+        </if>
+        <if test="query.keyword != null and query.keyword.trim() != ''">
+            and (
+                lower(t0.title) like lower(concat('%', #{query.keyword}, '%'))
+                or lower(t0.description) like lower(concat('%', #{query.keyword}, '%'))
+                or lower(t0.requirements) like lower(concat('%', #{query.keyword}, '%'))
+                or lower(t0.position) like lower(concat('%', #{query.keyword}, '%'))
+            )
+        </if>
+        <if test="query.companyId != null">
+            and t0.company_id = #{query.companyId}
+        </if>
+        <if test="query.skillId != null">
+            and t0.id in (
+                select js.job_id from job_skills js where js.skill_id = #{query.skillId}
+            )
+        </if>
+        <if test="query.postIds != null and query.postIds.size() > 0">
+            and t0.id in
+            <foreach collection="query.postIds" item="postId" open="(" separator="," close=")">
+                #{postId}
+            </foreach>
+        </if>
+        <if test="query.haveFilter">
+            and (
+            <foreach collection="query.filters" item="items" index="index" separator=" or ">
+                (<foreach collection="items.filters" item="item" index="index" separator=" and ">
+                    ${item.alias}${item.field} ${item.op}<if test="!item.listValue">#{item.value}</if>
+                    <if test="item.listValue"> <foreach item="item1" collection="item.value" open="(" separator="," close=")">#{item1}</foreach> </if>
+                 </foreach>)
+            </foreach>
+            )
+        </if>
+        order by
+        <choose>
+            <when test="query.sortBy != null and query.sortBy != ''">
+                ${query.sortBy} <if test="query.sortDirection != null and query.sortDirection != ''">${query.sortDirection}</if>
+            </when>
+            <otherwise>
+                t0.created_at desc, t0.id desc
+            </otherwise>
+        </choose>
+    </select>
+
+</mapper>

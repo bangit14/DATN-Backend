@@ -18,49 +18,49 @@ spring:
         - AddResponseHeader=X-Gateway, InternshipGateway
       routes:
         - id: auth-service
-          uri: http://${AUTH_HOST:localhost}:${AUTH_PORT:8081}
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/auth/**
 
-        - id: profile-service
-          uri: http://${PROFILE_HOST:localhost}:${PROFILE_PORT:8082}
+        - id: candidate-service-profile
+          uri: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/api/profile/**
           filters:
             - PreserveHostHeader
 
-        - id: job-service
-          uri: http://${JOB_HOST:localhost}:${JOB_PORT:8083}
+        - id: recruitment-service-jobs
+          uri: ${RECRUITMENT_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/internship-post/**, /api/jobs/**, /api/job-posts/**, /api/skill/**, /api/skills/**, /api/skill-categories/**, /api/industries/**
           filters:
             - PreserveHostHeader
 
         - id: message-service
-          uri: http://${MESSAGE_HOST:localhost}:${MESSAGE_PORT:8084}
+          uri: ${MESSAGE_SERVICE_URL:http://localhost:8084}
           predicates:
-            - Path=/api/message/**
+            - Path=/api/message/**, /api/v1/messages/**, /api/v1/conversations/**, /ws/**
         #          filters:
         #            - StripPrefix=1
         #            - PreserveHostHeader
 
-        - id: cv-service
-          uri: http://${CV_HOST:localhost}:${CV_PORT:8085}
+        - id: candidate-service-cv
+          uri: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/api/cv/**
         #          filters:
         #            - StripPrefix=1
         #            - PreserveHostHeader
 
-        - id: applying-service
-          uri: http://${APPLYING_HOST:localhost}:${APPLYING_PORT:8090}
+        - id: recruitment-service-applying
+          uri: ${RECRUITMENT_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/applying/**
           filters:
             - PreserveHostHeader
 
-        - id: matching-service
-          uri: http://${MATCHING_HOST:localhost}:${MATCHING_PORT:8088}
+        - id: candidate-service-matching
+          uri: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/api/matching/**
           filters:

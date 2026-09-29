@@ -57,7 +57,7 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
     @Value("${app.google.client-id:}")
     private String googleClientId;
 
-    @Value("${app.services.profile-url:http://localhost:8082/api/profile}")
+    @Value("${integrations.candidate.profile-api-url:http://localhost:8082/api/profile}")
     private String profileServiceUrl;
 
     @Override
@@ -178,7 +178,7 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
                 ? registerNewGoogleUser(googleUser, request.getRole())
                 : validateExistingGoogleUser(existingUser);
 
-        // 3. Auto-sync profile with profile-service for new user
+        // 3. Auto-sync profile with candidate-service for new user
         if (isNewUser) {
             syncProfileForGoogleUser(user, googleUser);
         }
@@ -288,7 +288,7 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
                 log.info("Auto-created profile for Google userId={} (role={})", user.getId(), user.getRole());
             }
         } catch (Exception e) {
-            log.warn("Auto-create profile via profile-service failed or service offline: {}. Proceeding with user login.", e.getMessage());
+            log.warn("Auto-create profile via candidate-service failed or service offline: {}. Proceeding with user login.", e.getMessage());
         }
     }
 

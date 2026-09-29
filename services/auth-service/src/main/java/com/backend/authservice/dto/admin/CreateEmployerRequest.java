@@ -29,6 +29,7 @@ public class CreateEmployerRequest {
     @NotBlank(message = "Tên công ty không được để trống")
     @Size(min = 2, max = 150, message = "Tên công ty từ 2 đến 150 ký tự")
     private String companyName;
+    private String companyTaxCode;
 
     private String companyIndustry;
     private String companyDescription;

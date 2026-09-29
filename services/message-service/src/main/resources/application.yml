@@ -6,13 +6,17 @@ spring:
     name: message-service
 
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:message_service_db}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:intern_network}?currentSchema=${MESSAGE_DB_SCHEMA:message_schema}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
 
   flyway:
     enabled: true
+    baseline-on-migrate: true
+    schemas: ${MESSAGE_DB_SCHEMA:message_schema}
+    default-schema: ${MESSAGE_DB_SCHEMA:message_schema}
+    create-schemas: true
 
   jackson:
     serialization:
@@ -42,6 +46,6 @@ aws:
   access-key-id: ${AWS_ACCESS_KEY_ID:test-access-key}
   secret-access-key: ${AWS_SECRET_ACCESS_KEY:test-secret-key}
 
-service:
-  profile:
-    base-url: http://localhost:8082/api/profile/internal
+integrations:
+  candidate:
+    profile-internal-api-url: ${CANDIDATE_SERVICE_URL:http://localhost:8082}/api/profile/internal

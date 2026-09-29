@@ -2,13 +2,18 @@ server:
   port: ${AUTH_PORT:8081}
 
 spring:
+  application:
+    name: auth-service
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:auth_service_db}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:intern_network}?currentSchema=${AUTH_DB_SCHEMA:auth_schema}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:password}
   flyway:
     enabled: true
     baseline-on-migrate: true
+    schemas: ${AUTH_DB_SCHEMA:auth_schema}
+    default-schema: ${AUTH_DB_SCHEMA:auth_schema}
+    create-schemas: true
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
@@ -22,8 +27,9 @@ app:
     secret: ${JWT_SECRET:dGhpc2lzYXNlY3JldGtleWZvcmF1dGhjb21wb25lbnRzZWNyZXRrZXkxMjM0NTY=}
     expiration-minutes: ${JWT_ACCESS_EXP_MINUTES:60}
     refresh-expiration-days: ${JWT_REFRESH_EXP_DAYS:7}
-  services:
-    profile-url: ${PROFILE_SERVICE_URL:http://localhost:8082/api/profile}
+integrations:
+  candidate:
+    profile-api-url: ${CANDIDATE_SERVICE_URL:http://localhost:8082}/api/profile
 
 logging:
   level:

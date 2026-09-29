@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.backend.candidateservice.cv.mapper.db.CVDbMapper">
+
+    <select id="getCvPageForEmployer" parameterType="com.backend.candidateservice.cv.dto.MappedCvQuery"
+            resultType="com.backend.candidateservice.cv.entity.CV">
+        select t0.*
+        from cvs t0
+        left join cv_norm t1 on t0.id = t1.cv_id
+        where 1 = 1
+        <if test="query.keyword != null and query.keyword.trim() != ''">
+            and (
+                lower(t0.cv_name) like lower(concat('%', #{query.keyword}, '%'))
+                or lower(t0.raw_text) like lower(concat('%', #{query.keyword}, '%'))
+            )
+        </if>
+        <if test="query.studentId != null">
+            and t0.student_id = #{query.studentId}
+        </if>
+        <if test="query.isDefault != null">
+            and t0.is_default = #{query.isDefault}
+        </if>
+        <if test="query.nlpStatus != null and query.nlpStatus.trim() != ''">
+            and t0.nlp_status = #{query.nlpStatus}
+        </if>
+        <if test="query.educationLevel != null and query.educationLevel.trim() != ''">
+            and lower(t1.education_level) = lower(#{query.educationLevel})
+        </if>
+        <if test="query.yearsTotalMin != null">
+            and t1.years_total &gt;= #{query.yearsTotalMin}
+        </if>
+        <if test="query.yearsTotalMax != null">
+            and t1.years_total &lt;= #{query.yearsTotalMax}
+        </if>
+        <if test="query.cvIds != null and query.cvIds.size() > 0">
+            and t0.id in
+            <foreach collection="query.cvIds" item="cvId" open="(" separator="," close=")">
+                #{cvId}
+            </foreach>
+        </if>
+        <if test="query.haveFilter">
+            and (
+            <foreach collection="query.filters" item="items" index="index" separator=" or ">
+                (<foreach collection="items.filters" item="item" index="index" separator=" and ">
+                    ${item.alias}${item.field} ${item.op}<if test="!item.listValue">#{item.value}</if>
+                    <if test="item.listValue"> <foreach item="item1" collection="item.value" open="(" separator="," close=")">#{item1}</foreach> </if>
+                 </foreach>)
+            </foreach>
+            )
+        </if>
+        order by
+        <choose>
+            <when test="query.sortBy != null and query.sortBy != ''">
+                ${query.sortBy} <if test="query.sortDirection != null and query.sortDirection != ''">${query.sortDirection}</if>
+            </when>
+            <otherwise>
+                t0.created_at desc, t0.id desc
+            </otherwise>
+        </choose>
+    </select>
+
+</mapper>

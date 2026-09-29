@@ -8,3 +8,5 @@ CREATE SCHEMA IF NOT EXISTS applying_schema;
 CREATE SCHEMA IF NOT EXISTS cv_schema;
 CREATE SCHEMA IF NOT EXISTS message_schema;
 CREATE SCHEMA IF NOT EXISTS matching_schema;
+CREATE SCHEMA IF NOT EXISTS candidate_schema;
+CREATE SCHEMA IF NOT EXISTS recruitment_schema;
