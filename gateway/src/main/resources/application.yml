@@ -15,54 +15,33 @@ spring:
       forwarded-headers-strategy: framework
       default-filters:
         - PreserveHostHeader
-        - AddResponseHeader=X-Gateway, InternshipGateway
+        - AddResponseHeader=X-Gateway, JobPortalGateway
       routes:
+        # Internal Docker ports: auth=8081, candidate=8082,
+        # recruitment=8083 and message=8084.
         - id: auth-service
           uri: ${AUTH_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/auth/**
 
-        - id: candidate-service-profile
+        - id: candidate-service
           uri: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
           predicates:
-            - Path=/api/profile/**
+            - Path=/api/profile/**, /api/cv/**, /api/matching/**
           filters:
             - PreserveHostHeader
 
-        - id: recruitment-service-jobs
+        - id: recruitment-service
           uri: ${RECRUITMENT_SERVICE_URL:http://localhost:8083}
           predicates:
-            - Path=/api/internship-post/**, /api/jobs/**, /api/job-posts/**, /api/skill/**, /api/skills/**, /api/skill-categories/**, /api/industries/**
+            - Path=/api/internship-post/**, /api/jobs/**, /api/job-posts/**, /api/skill/**, /api/skills/**, /api/skill-categories/**, /api/industries/**, /api/applying/**
           filters:
             - PreserveHostHeader
 
         - id: message-service
           uri: ${MESSAGE_SERVICE_URL:http://localhost:8084}
           predicates:
-            - Path=/api/message/**, /api/v1/messages/**, /api/v1/conversations/**, /ws/**
-        #          filters:
-        #            - StripPrefix=1
-        #            - PreserveHostHeader
-
-        - id: candidate-service-cv
-          uri: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
-          predicates:
-            - Path=/api/cv/**
-        #          filters:
-        #            - StripPrefix=1
-        #            - PreserveHostHeader
-
-        - id: recruitment-service-applying
-          uri: ${RECRUITMENT_SERVICE_URL:http://localhost:8083}
-          predicates:
-            - Path=/api/applying/**
-          filters:
-            - PreserveHostHeader
-
-        - id: candidate-service-matching
-          uri: ${CANDIDATE_SERVICE_URL:http://localhost:8082}
-          predicates:
-            - Path=/api/matching/**
+            - Path=/api/message/**, /ws/**
           filters:
             - PreserveHostHeader
 management:

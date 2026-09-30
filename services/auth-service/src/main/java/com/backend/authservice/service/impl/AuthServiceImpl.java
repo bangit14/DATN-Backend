@@ -37,6 +37,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -54,8 +56,14 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
     private final TokenService tokenService;
     private final RestTemplate restTemplate;
 
-    @Value("${app.google.client-id:}")
+    @Value("${app.oauth.google.enabled:false}")
+    private boolean googleOauthEnabled;
+
+    @Value("${app.oauth.google.client-id:}")
     private String googleClientId;
+
+    @Value("${app.oauth.google.token-info-url:https://oauth2.googleapis.com/tokeninfo}")
+    private String googleTokenInfoUrl;
 
     @Value("${integrations.candidate.profile-api-url:http://localhost:8082/api/profile}")
     private String profileServiceUrl;
@@ -199,13 +207,17 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
      * Verifies Google ID Token via Google's tokeninfo endpoint.
      */
     private GoogleUserInfo verifyGoogleIdToken(String idToken) {
+        if (!googleOauthEnabled || googleClientId == null || googleClientId.isBlank()) {
+            log.error("Google OAuth is disabled or GOOGLE_OAUTH_CLIENT_ID is not configured");
+            throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Google OAuth is not configured");
+        }
         if (idToken == null || idToken.trim().isEmpty()) {
             throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Google ID Token is required");
         }
 
         Map<String, Object> payload;
         try {
-            String verifyUrl = "https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken.trim();
+            String verifyUrl = googleTokenInfoUrl + "?id_token=" + URLEncoder.encode(idToken.trim(), StandardCharsets.UTF_8);
             ResponseEntity<Map> response = restTemplate.getForEntity(verifyUrl, Map.class);
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                 throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN);
@@ -224,12 +236,10 @@ public class AuthServiceImpl extends ServiceImpl<UserAccountMapper, UserAccount>
         }
         email = email.trim().toLowerCase();
 
-        // Optional Audience check
-        if (googleClientId != null && !googleClientId.trim().isEmpty()) {
-            String aud = (String) payload.get("aud");
-            if (!googleClientId.equals(aud)) {
-                log.warn("Google ID token audience mismatch. Expected: {}, Got: {}", googleClientId, aud);
-            }
+        String aud = (String) payload.get("aud");
+        if (!googleClientId.equals(aud)) {
+            log.warn("Google ID token audience mismatch. Expected: {}, Got: {}", googleClientId, aud);
+            throw new AppException(ErrorCode.INVALID_GOOGLE_TOKEN, "Google ID token audience is invalid");
         }
 
         String name = (String) payload.get("name");

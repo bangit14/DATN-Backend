@@ -5,15 +5,12 @@ spring:
   application:
     name: auth-service
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:intern_network}?currentSchema=${AUTH_DB_SCHEMA:auth_schema}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${AUTH_DB_NAME:auth_db}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:password}
   flyway:
     enabled: true
     baseline-on-migrate: true
-    schemas: ${AUTH_DB_SCHEMA:auth_schema}
-    default-schema: ${AUTH_DB_SCHEMA:auth_schema}
-    create-schemas: true
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml

@@ -3,16 +3,20 @@ services:
     image: postgres:16
     container_name: intern-db
     environment:
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_DB: ${AUTH_DB_NAME:-auth_db}
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      AUTH_DB_NAME: ${AUTH_DB_NAME:-auth_db}
+      CANDIDATE_DB_NAME: ${CANDIDATE_DB_NAME:-candidate_db}
+      MESSAGE_DB_NAME: ${MESSAGE_DB_NAME:-message_db}
+      RECRUITMENT_DB_NAME: ${RECRUITMENT_DB_NAME:-recruitment_db}
     ports:
       - "${DB_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${AUTH_DB_NAME:-auth_db}"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -26,7 +30,7 @@ services:
     env_file: ${ENV_FILE:-.env.docker}
     environment:
       DB_HOST: db
-      AUTH_DB_SCHEMA: auth_schema
+      AUTH_DB_NAME: ${AUTH_DB_NAME:-auth_db}
       CANDIDATE_SERVICE_URL: http://candidate-service:8082
     depends_on:
       db:
@@ -44,7 +48,7 @@ services:
     environment:
       DB_HOST: db
       CANDIDATE_PORT: 8082
-      CANDIDATE_DB_SCHEMA: candidate_schema
+      CANDIDATE_DB_NAME: ${CANDIDATE_DB_NAME:-candidate_db}
       RECRUITMENT_SERVICE_URL: http://recruitment-service:8083
       CANDIDATE_SERVICE_URL: http://candidate-service:8082
     depends_on:
@@ -61,7 +65,7 @@ services:
     environment:
       DB_HOST: db
       RECRUITMENT_PORT: 8083
-      RECRUITMENT_DB_SCHEMA: recruitment_schema
+      RECRUITMENT_DB_NAME: ${RECRUITMENT_DB_NAME:-recruitment_db}
       CANDIDATE_SERVICE_URL: http://candidate-service:8082
       RECRUITMENT_SERVICE_URL: http://recruitment-service:8083
     depends_on:
@@ -77,7 +81,7 @@ services:
     env_file: ${ENV_FILE:-.env.docker}
     environment:
       DB_HOST: db
-      MESSAGE_DB_SCHEMA: message_schema
+      MESSAGE_DB_NAME: ${MESSAGE_DB_NAME:-message_db}
       CANDIDATE_SERVICE_URL: http://candidate-service:8082
     depends_on:
       db:
